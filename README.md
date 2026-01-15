@@ -1,7 +1,7 @@
+<img width="484" height="685" alt="image" src="https://github.com/user-attachments/assets/d9d991c9-0432-4e9b-a6a6-4df511e138bf" />
+
+
 # The Relic of Marethion
-
-[THe search of the ancient relic.pdf](https://github.com/user-attachments/files/24637979/THe.search.of.the.ancient.relic.pdf)
-
 Long ago, the underwater kingdom **Aquantis** was protected by a
 powerful artifact known as the **Relic of Marethion**.\
 The relic kept the seas calm and filled the ocean with life.
