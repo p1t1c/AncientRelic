@@ -1,0 +1,24 @@
+# Visual Studio Folders
+.vs/
+Debug/
+Release/
+x64/
+out/
+
+# User-specific files
+*.user
+*.aps
+*.opendb
+*.db
+*.ipch
+
+# Compiled Binaries and Objects
+*.exe
+*.obj
+*.pdb
+*.ilk
+*.log
+
+# Dependency folders (usually you don't push these if they are large)
+# Keep them if your team needs the exact same .lib files
+# dependente/
