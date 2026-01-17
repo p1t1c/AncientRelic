@@ -110,9 +110,10 @@ int main()
     GLuint texWood = loadBMP("Resources/Textures/wood.bmp");
     GLuint texRock = loadBMP("Resources/Textures/rock.bmp");
     GLuint texOrange = loadBMP("Resources/Textures/orange.bmp");
+    GLuint texUnderSand = loadBMP("Resources/Textures/underwater_sand.bmp");
 
     // Column texture BMP (schimbă numele dacă ai altul)
-    GLuint texColumn = loadBMP("Resources/Textures/images.bmp");
+    GLuint texColumn = loadBMP("Resources/Textures/987.bmp");
     if (texColumn == 0) texColumn = texRock; // fallback
 
     glEnable(GL_DEPTH_TEST);
@@ -127,11 +128,13 @@ int main()
     woodTex[0].type = "texture_diffuse";
     Mesh box = loader.loadObj("Resources/Models/cube.obj", woodTex);
 
-    // orange plane (main + caves)
-    std::vector<Texture> orangeTex(1);
-    orangeTex[0].id = texOrange;
-    orangeTex[0].type = "texture_diffuse";
-    Mesh plane = loader.loadObj("Resources/Models/plane.obj", orangeTex);
+    // plane uses BEACH now
+
+    std::vector<Texture> planeTex(1);
+    planeTex[0].id = texUnderSand;
+    planeTex[0].type = "texture_diffuse";
+
+    Mesh plane = loader.loadObj("Resources/Models/plane.obj", planeTex);
 
     // rock cube (rocks + enemies)
     std::vector<Texture> rockTex(1);
