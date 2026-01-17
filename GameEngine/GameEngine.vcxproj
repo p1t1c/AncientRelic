@@ -141,6 +141,7 @@
     <None Include="Shaders\vertex_shader.glsl" />
   </ItemGroup>
   <ItemGroup>
+    <Image Include="..\..\..\Downloads\pclxljcdlbeo-column\textures1\index.jpg" />
     <Image Include="Resources\Textures\rock.bmp" />
     <Image Include="Resources\Textures\wood.bmp" />
   </ItemGroup>

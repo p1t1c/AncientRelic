@@ -73,6 +73,9 @@
     <Image Include="Resources\Textures\rock.bmp">
       <Filter>Resource Files</Filter>
     </Image>
+    <Image Include="..\..\..\Downloads\pclxljcdlbeo-column\textures1\index.jpg">
+      <Filter>Resource Files</Filter>
+    </Image>
   </ItemGroup>
   <ItemGroup>
     <Object Include="Resources\Models\sphere.obj" />

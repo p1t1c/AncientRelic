@@ -1,6 +1,7 @@
-// main.cpp (FULL FILE - main room + portals + columns + rocks + chest shake
-// + cave1 simple plane + fast enemy + yellow coin pickup -> back to main
-// + cave2 simple plane + TWO mirrored enemies (faster) + coin pickup -> back to main)
+﻿// main.cpp (FULL FILE - main room + portals + NEW column OBJ rows + rocks + chest OBJ shake
+// + cave1 simple plane + fast enemy + orange coin pickup -> back to main
+// + cave2 simple plane + TWO mirrored enemies (faster) + orange coin pickup -> back to main
+// + UNDERWATER FOG (shader uniforms))
 
 #include "Graphics\\window.h"
 #include "Camera\\camera.h"
@@ -25,12 +26,20 @@ bool pointInAABB(const glm::vec3& p, const glm::vec3& center, const glm::vec3& h
         (std::abs(p.z - center.z) <= halfSize.z);
 }
 
-// mirror a position across the cave origin on X axis (left/right mirror)
 glm::vec3 mirrorXAroundOrigin(const glm::vec3& pos, const glm::vec3& origin)
 {
     glm::vec3 d = pos - origin;
     d.x = -d.x;
     return origin + d;
+}
+
+// ===================== Floor alignment helpers =====================
+const float MAIN_FLOOR_Y = -20.0f;
+const float MAIN_FLOOR_HALF_THICKNESS = 0.5f;
+
+inline float mainFloorTopY()
+{
+    return MAIN_FLOOR_Y + MAIN_FLOOR_HALF_THICKNESS;
 }
 
 // ===================== Global State =====================
@@ -51,7 +60,7 @@ int currentZone = 0;
 // Teleport cooldown
 static float lastTeleportTime = -1000.0f;
 
-// Where we return after coin pickup (cave1 + cave2)
+// Where we return after coin pickup
 glm::vec3 mainSpawnPos(0.0f, 0.0f, 100.0f);
 
 // ===================== Main Room Stuff =====================
@@ -65,11 +74,6 @@ glm::vec3 portalHalfSize(25.0f, 50.0f, 25.0f);
 glm::vec3 caveSpawnLeft(0.0f, 0.0f, -500.0f);
 glm::vec3 caveSpawnRight(50.0f, 0.0f, -500.0f);
 
-// ===================== Cave Floor Settings (USED IN CAVE 1 and 2) =====================
-float caveFloorY = -20.0f;
-float caveFloorSize = 900.0f;     // make bigger/smaller
-float caveFloorCenterZ = -200.0f; // push plane forward so you don't see too much behind you
-
 // ===================== Cave 1 Stuff (SIMPLE) =====================
 glm::vec3 cave1Origin;
 glm::vec3 cave1ObstaclePos;
@@ -79,18 +83,19 @@ float     cave1NextTargetTime = 0.0f;
 glm::vec3 cave1CoinBase;
 bool      cave1CoinVisible = true;
 
-// ===================== Cave 2 Stuff (SIMPLE + 2 MIRROR ENEMIES + COIN) =====================
+// Cave terrain
+float caveFloorY = -20.0f;
+float caveFloorSize = 1200.0f;
+
+// ===================== Cave 2 Stuff (SIMPLE + 2 MIRROR ENEMIES) =====================
 glm::vec3 cave2Origin;
 
-// Enemy A (random mover)
 glm::vec3 cave2EnemyA_Pos;
 glm::vec3 cave2EnemyA_Target;
 float     cave2EnemyA_NextTargetTime = 0.0f;
 
-// Enemy B is MIRROR of A each frame
 glm::vec3 cave2EnemyB_Pos;
 
-// Cave2 coin
 glm::vec3 cave2CoinBase;
 bool      cave2CoinVisible = true;
 
@@ -106,10 +111,9 @@ int main()
     GLuint texRock = loadBMP("Resources/Textures/rock.bmp");
     GLuint texOrange = loadBMP("Resources/Textures/orange.bmp");
 
-    // Coin texture (yellow) - fallback to orange if missing
-    GLuint texYellow = loadBMP("Resources/Textures/orange.bmp");
-    if (texYellow == 0)
-        texYellow = texOrange;
+    // Column texture BMP (schimbă numele dacă ai altul)
+    GLuint texColumn = loadBMP("Resources/Textures/images.bmp");
+    if (texColumn == 0) texColumn = texRock; // fallback
 
     glEnable(GL_DEPTH_TEST);
     srand(42);
@@ -117,34 +121,55 @@ int main()
     MeshLoaderObj loader;
     Mesh sun = loader.loadObj("Resources/Models/sphere.obj");
 
-    // wood cube
+    // wood cube (portals)
     std::vector<Texture> woodTex(1);
     woodTex[0].id = texWood;
     woodTex[0].type = "texture_diffuse";
     Mesh box = loader.loadObj("Resources/Models/cube.obj", woodTex);
 
-    // MAIN plane (orange)
+    // orange plane (main + caves)
     std::vector<Texture> orangeTex(1);
     orangeTex[0].id = texOrange;
     orangeTex[0].type = "texture_diffuse";
-    Mesh mainPlane = loader.loadObj("Resources/Models/plane.obj", orangeTex);
+    Mesh plane = loader.loadObj("Resources/Models/plane.obj", orangeTex);
 
-    // rock cube
+    // rock cube (rocks + enemies)
     std::vector<Texture> rockTex(1);
     rockTex[0].id = texRock;
     rockTex[0].type = "texture_diffuse";
     Mesh rockBox = loader.loadObj("Resources/Models/cube.obj", rockTex);
 
-    // CAVE plane (rock texture)
-    Mesh cavePlane = loader.loadObj("Resources/Models/plane.obj", rockTex);
+    // coin cube uses ORANGE
+    std::vector<Texture> coinTex(1);
+    coinTex[0].id = texOrange;
+    coinTex[0].type = "texture_diffuse";
+    Mesh coinBox = loader.loadObj("Resources/Models/cube.obj", coinTex);
 
-    // yellow coin cube
-    std::vector<Texture> yellowTex(1);
-    yellowTex[0].id = texYellow;
-    yellowTex[0].type = "texture_diffuse";
-    Mesh coinBox = loader.loadObj("Resources/Models/cube.obj", yellowTex);
+    // ===== CHEST OBJ =====
+    std::vector<Texture> chestTex(1);
+    chestTex[0].id = texWood;
+    chestTex[0].type = "texture_diffuse";
+    Mesh chestMesh = loader.loadObj("Resources/Models/chest_fixed_tri.obj", chestTex);
+    const float CHEST_OBJ_SCALE = 15.0f;
 
-    // E edge detection (ONE place)
+    // ===== NEW COLUMN OBJ (IMPORTANT) =====
+    std::vector<Texture> colTex(1);
+    colTex[0].id = texColumn;
+    colTex[0].type = "texture_diffuse";
+    Mesh columnMesh = loader.loadObj("Resources/Models/column.obj", colTex);
+
+    // Column tuning (make them BIGGER)
+    const float COLUMN_SCALE = 0.80f;        // <-- BIGGER (schimbă 0.4 / 0.8 dacă vrei)
+    const float COLUMN_ROT_X = 0.0f;         // încercăm 0 prima dată; dacă e culcat: pune 90 sau -90
+    const float COLUMN_ROT_Y = 90.0f;
+    const float COLUMN_ROT_Z = 0.0f;
+
+    // Model pivot fix: OBJ-ul are Y în jur de 300, deci trebuie “tras” în jos.
+    // Dacă încă e sub podea -> fă mai puțin negativ (ex -120)
+    // Dacă plutește -> fă mai negativ (ex -380)
+    const float COLUMN_BASE_Y_FIX = -300.0f; // în unități “model”, NU world
+
+    // E edge detection
     bool ePrevDown = false;
 
     while (!window.isPressed(GLFW_KEY_ESCAPE) &&
@@ -158,7 +183,6 @@ int main()
 
         processKeyboardInput();
 
-        // ----- E edge detection -----
         bool eDown = window.isPressed(GLFW_KEY_E);
         bool eJustPressed = (eDown && !ePrevDown);
         ePrevDown = eDown;
@@ -170,14 +194,12 @@ int main()
         {
             glm::vec3 camPos = camera.getCameraPosition();
 
-            // LEFT portal -> Cave 1
             if (pointInAABB(camPos, portalLeftPos, portalHalfSize))
             {
                 currentZone = 1;
                 lastTeleportTime = now;
 
                 cave1Origin = caveSpawnLeft;
-
                 camera.setCameraPosition(cave1Origin + glm::vec3(0.0f, 0.0f, 0.0f));
 
                 cave1ObstaclePos = cave1Origin + glm::vec3(0.0f, -10.0f, -220.0f);
@@ -187,35 +209,28 @@ int main()
                 cave1CoinBase = cave1Origin + glm::vec3(0.0f, 10.0f, -120.0f);
                 cave1CoinVisible = true;
             }
-            // RIGHT portal -> Cave 2
             else if (pointInAABB(camPos, portalRightPos, portalHalfSize))
             {
                 currentZone = 2;
                 lastTeleportTime = now;
 
                 cave2Origin = caveSpawnRight;
-
-                // spawn player
                 camera.setCameraPosition(cave2Origin + glm::vec3(0.0f, 0.0f, 0.0f));
 
-                // Enemy A starts on +X side, farther
                 cave2EnemyA_Pos = cave2Origin + glm::vec3(120.0f, -10.0f, -220.0f);
                 cave2EnemyA_Target = cave2EnemyA_Pos;
                 cave2EnemyA_NextTargetTime = glfwGetTime() + 0.3f;
 
-                // Enemy B mirrors A
                 cave2EnemyB_Pos = mirrorXAroundOrigin(cave2EnemyA_Pos, cave2Origin);
 
-                // Coin in cave2
                 cave2CoinBase = cave2Origin + glm::vec3(0.0f, 10.0f, -120.0f);
                 cave2CoinVisible = true;
             }
         }
 
-        // ===================== MAIN ROOM interactions (only zone 0) =====================
+        // ===================== MAIN ROOM interactions =====================
         if (currentZone == 0)
         {
-            // Stop chest shaking with E near chest
             if (eJustPressed)
             {
                 float distToChest = glm::length(camera.getCameraPosition() - chestBasePos);
@@ -224,15 +239,15 @@ int main()
             }
         }
 
-        // ===================== CAVE 1 LOGIC (enemy + coin) =====================
+        // ===================== CAVE 1 LOGIC =====================
         if (currentZone == 1)
         {
             float nowT = glfwGetTime();
 
             if (nowT > cave1NextTargetTime)
             {
-                float rangeX = 260.0f;
-                float rangeZ = 260.0f;
+                float rangeX = 220.0f;
+                float rangeZ = 220.0f;
 
                 glm::vec3 base = cave1Origin + glm::vec3(0.0f, -10.0f, -180.0f);
 
@@ -260,7 +275,6 @@ int main()
                 camera.setCameraPosition(cave1Origin + glm::vec3(0.0f, 0.0f, 0.0f));
             }
 
-            // Coin pickup with E (use SAME float position as rendering)
             if (cave1CoinVisible && eJustPressed)
             {
                 float tCoin = glfwGetTime();
@@ -268,12 +282,9 @@ int main()
                 glm::vec3 coinPosNow = cave1CoinBase + glm::vec3(0.0f, floatY, 0.0f);
 
                 float distToCoin = glm::length(camera.getCameraPosition() - coinPosNow);
-
                 if (distToCoin < 35.0f)
                 {
                     cave1CoinVisible = false;
-
-                    // Return to main immediately
                     currentZone = 0;
                     camera.setCameraPosition(mainSpawnPos);
                     lastTeleportTime = glfwGetTime();
@@ -281,21 +292,20 @@ int main()
             }
         }
 
-        // ===================== CAVE 2 LOGIC (two mirrored enemies + coin) =====================
+        // ===================== CAVE 2 LOGIC =====================
         if (currentZone == 2)
         {
             float nowT = glfwGetTime();
 
-            // Choose a new target for Enemy A
             if (nowT > cave2EnemyA_NextTargetTime)
             {
-                float rangeX = 280.0f;
-                float rangeZ = 280.0f;
+                float rangeX = 240.0f;
+                float rangeZ = 240.0f;
 
                 glm::vec3 base = cave2Origin + glm::vec3(0.0f, -10.0f, -180.0f);
 
                 cave2EnemyA_Target = base + glm::vec3(
-                    randRange(0.0f, rangeX),        // keep A on +X half
+                    randRange(0.0f, rangeX),
                     0.0f,
                     randRange(-rangeZ, rangeZ)
                 );
@@ -303,7 +313,6 @@ int main()
                 cave2EnemyA_NextTargetTime = nowT + randRange(0.6f, 1.1f);
             }
 
-            // Move Enemy A (FASTER)
             glm::vec3 dirA = cave2EnemyA_Target - cave2EnemyA_Pos;
             float lenA = glm::length(dirA);
             if (lenA > 0.05f)
@@ -313,10 +322,8 @@ int main()
                 cave2EnemyA_Pos += dirA * speedA * deltaTime;
             }
 
-            // Enemy B mirrors A position
             cave2EnemyB_Pos = mirrorXAroundOrigin(cave2EnemyA_Pos, cave2Origin);
 
-            // Collision with either enemy -> reset to cave2 spawn
             glm::vec3 enemyHalf(6.0f, 8.0f, 6.0f);
             glm::vec3 camPos = camera.getCameraPosition();
 
@@ -326,7 +333,6 @@ int main()
                 camera.setCameraPosition(cave2Origin + glm::vec3(0.0f, 0.0f, 0.0f));
             }
 
-            // Coin pickup with E (same logic as cave1)
             if (cave2CoinVisible && eJustPressed)
             {
                 float tCoin = glfwGetTime();
@@ -334,12 +340,9 @@ int main()
                 glm::vec3 coinPosNow = cave2CoinBase + glm::vec3(0.0f, floatY, 0.0f);
 
                 float distToCoin = glm::length(camera.getCameraPosition() - coinPosNow);
-
                 if (distToCoin < 35.0f)
                 {
                     cave2CoinVisible = false;
-
-                    // Return to main immediately
                     currentZone = 0;
                     camera.setCameraPosition(mainSpawnPos);
                     lastTeleportTime = glfwGetTime();
@@ -362,17 +365,22 @@ int main()
 
         GLuint MatrixID = glGetUniformLocation(sunShader.getId(), "MVP");
 
-        // light sphere
         glm::mat4 ModelMatrix = glm::mat4(1.0f);
+        glm::mat4 MVP = glm::mat4(1.0f);
+
+        // light sphere
+        ModelMatrix = glm::mat4(1.0f);
         ModelMatrix = glm::translate(ModelMatrix, lightPos);
-        glm::mat4 MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
+        MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
         glUniformMatrix4fv(MatrixID, 1, GL_FALSE, &MVP[0][0]);
         sun.draw(sunShader);
 
         shader.use();
 
         GLuint MatrixID2 = glGetUniformLocation(shader.getId(), "MVP");
-        GLuint ModelMatrixID = glGetUniformLocation(shader.getId(), "model");
+        GLuint ModelMatrixID = glGetUniformLocation(shader.getId(), "model");// ===== TOP LIGHT that follows the player (so textures are always readable) =====
+        lightPos = camera.getCameraPosition() + glm::vec3(0.0f, 350.0f, 0.0f); // above you
+        lightColor = glm::vec3(0.8f, 0.8f, 0.8f);  // brighter than 1.0
 
         glUniform3f(glGetUniformLocation(shader.getId(), "lightColor"),
             lightColor.x, lightColor.y, lightColor.z);
@@ -383,17 +391,28 @@ int main()
             camera.getCameraPosition().y,
             camera.getCameraPosition().z);
 
-        // ===================== DRAW MAIN ROOM (zone 0) =====================
+        // ===== UNDERWATER FOG uniforms =====
+        // active în toate zonele (poți condiționa dacă vrei doar în cave)
+        glUniform1i(glGetUniformLocation(shader.getId(), "uUseFog"), 1);
+        glUniform3f(glGetUniformLocation(shader.getId(), "uFogColor"), 0.05f, 0.35f, 0.55f); // underwater tint
+        glUniform1f(glGetUniformLocation(shader.getId(), "uFogNear"), 40.0f);
+        glUniform1f(glGetUniformLocation(shader.getId(), "uFogFar"), 420.0f);
+
+        // (pentru linearize depth)
+        glUniform1f(glGetUniformLocation(shader.getId(), "uNear"), 0.1f);
+        glUniform1f(glGetUniformLocation(shader.getId(), "uFar"), 10000.0f);
+
+        // ===================== DRAW MAIN ROOM =====================
         if (currentZone == 0)
         {
-            // plane (bigger orange terrain)
+            // floor
             ModelMatrix = glm::mat4(1.0f);
-            ModelMatrix = glm::translate(ModelMatrix, glm::vec3(0.0f, -20.0f, 0.0f));
+            ModelMatrix = glm::translate(ModelMatrix, glm::vec3(0.0f, MAIN_FLOOR_Y, 0.0f));
             ModelMatrix = glm::scale(ModelMatrix, glm::vec3(2000.0f, 1.0f, 2000.0f));
             MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
             glUniformMatrix4fv(MatrixID2, 1, GL_FALSE, &MVP[0][0]);
             glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
-            mainPlane.draw(shader);
+            plane.draw(shader);
 
             // portals
             ModelMatrix = glm::translate(glm::mat4(1.0f), portalLeftPos);
@@ -410,67 +429,79 @@ int main()
             glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
             box.draw(shader);
 
-            // ===== 8 Columns: 4 on LEFT, 4 on RIGHT =====
-            float colXLeft = -180.0f;
-            float colXRight = 180.0f;
-            float colY = -5.0f;
+            // ===== NEW COLUMN ROWS (OBJ) =====
+            // dacă vrei mai aproape/depărtat, schimbă COL_X_... și COL_Z_...
+            const int   NUM_COLS_PER_SIDE = 8;
+            const float COL_X_LEFT = -260.0f;
+            const float COL_X_RIGHT = 260.0f;
+            const float COL_Z_START = -60.0f;
+            const float COL_Z_STEP = 120.0f;
 
-            float zStart = -40.0f;
-            float zStep = 120.0f;
-
-            float z0 = zStart + 0 * -zStep;
-            float z1 = zStart + 1 * -zStep;
-            float z2 = zStart + 2 * -zStep;
-            float z3 = zStart + 3 * -zStep;
-
-            glm::vec3 colScale(12.0f, 45.0f, 12.0f);
-
-            auto drawColumn = [&](float x, float z)
+            auto drawColumnOBJ = [&](float x, float z, bool isLeft)
                 {
-                    ModelMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(x, colY, z));
-                    ModelMatrix = glm::scale(ModelMatrix, colScale);
+                    glm::mat4 M = glm::mat4(1.0f);
 
-                    MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
-                    glUniformMatrix4fv(MatrixID2, 1, GL_FALSE, &MVP[0][0]);
-                    glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
+                    // 1) world position (pe podea)
+                    const float COLUMN_WORLD_LIFT = 240.0f;
+                    M = glm::translate(M, glm::vec3(x, mainFloorTopY() + COLUMN_WORLD_LIFT, z));
 
-                    box.draw(shader);
+                    // 2) ROTIRE: ca să fie “spre interior”
+                    // stânga privește spre dreapta, dreapta privește spre stânga
+                    float yaw = isLeft ? 222290.0f : -222290.0f;
+                    M = glm::rotate(M, glm::radians(yaw), glm::vec3(0, 1, 0));
+
+
+                    // dacă vrei să fie “întoarsă” pe lung (încă 90):
+                    // M = glm::rotate(M, glm::radians(90.0f), glm::vec3(0, 0, 1));
+
+                    // 3) scale
+                    M = glm::scale(M, glm::vec3(COLUMN_SCALE));
+
+                    // 4) pivot/model fix (în unități de model, după scale e ok aici)
+                    M = glm::translate(M, glm::vec3(0.0f, COLUMN_BASE_Y_FIX, 0.0f));
+
+                    glm::mat4 mvp = ProjectionMatrix * ViewMatrix * M;
+                    glUniformMatrix4fv(MatrixID2, 1, GL_FALSE, &mvp[0][0]);
+                    glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &M[0][0]);
+
+                    columnMesh.draw(shader);
                 };
 
-            drawColumn(colXLeft, z0);
-            drawColumn(colXLeft, z1);
-            drawColumn(colXLeft, z2);
-            drawColumn(colXLeft, z3);
 
-            drawColumn(colXRight, z0);
-            drawColumn(colXRight, z1);
-            drawColumn(colXRight, z2);
-            drawColumn(colXRight, z3);
+            for (int i = 0; i < NUM_COLS_PER_SIDE; i++)
+            {
+                float z = COL_Z_START - i * COL_Z_STEP;
 
-            // rocks
+                drawColumnOBJ(COL_X_LEFT, z, true);   // left side
+                drawColumnOBJ(COL_X_RIGHT, z, false);  // right side
+            }
+
+
+            // rocks aligned to floor
             auto drawRock = [&](glm::vec3 pos, glm::vec3 scale)
                 {
-                    ModelMatrix = glm::translate(glm::mat4(1.0f), pos);
-                    ModelMatrix = glm::scale(ModelMatrix, scale);
+                    pos.y = mainFloorTopY() + scale.y * 0.5f;
 
-                    MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
-                    glUniformMatrix4fv(MatrixID2, 1, GL_FALSE, &MVP[0][0]);
-                    glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
+                    glm::mat4 M = glm::translate(glm::mat4(1.0f), pos);
+                    M = glm::scale(M, scale);
+
+                    glm::mat4 mvp = ProjectionMatrix * ViewMatrix * M;
+                    glUniformMatrix4fv(MatrixID2, 1, GL_FALSE, &mvp[0][0]);
+                    glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &M[0][0]);
 
                     rockBox.draw(shader);
                 };
 
-            drawRock(glm::vec3(-40.0f, -18.0f, -60.0f), glm::vec3(6.0f, 4.0f, 6.0f));
-            drawRock(glm::vec3(20.0f, -18.5f, -90.0f), glm::vec3(4.0f, 3.0f, 5.0f));
-            drawRock(glm::vec3(55.0f, -18.0f, -70.0f), glm::vec3(5.0f, 4.0f, 4.0f));
-            drawRock(glm::vec3(-75.0f, -18.5f, -110.0f), glm::vec3(4.0f, 2.5f, 4.0f));
-            drawRock(glm::vec3(90.0f, -18.0f, -130.0f), glm::vec3(7.0f, 3.5f, 5.0f));
+            drawRock(glm::vec3(-40.0f, 0.0f, -60.0f), glm::vec3(6.0f, 4.0f, 6.0f));
+            drawRock(glm::vec3(20.0f, 0.0f, -90.0f), glm::vec3(4.0f, 3.0f, 5.0f));
+            drawRock(glm::vec3(55.0f, 0.0f, -70.0f), glm::vec3(5.0f, 4.0f, 4.0f));
+            drawRock(glm::vec3(-75.0f, 0.0f, -110.0f), glm::vec3(4.0f, 2.5f, 4.0f));
+            drawRock(glm::vec3(90.0f, 0.0f, -130.0f), glm::vec3(7.0f, 3.5f, 5.0f));
 
-            // chest
+            // chest aligned to floor
             float t = glfwGetTime();
-            glm::vec3 chestScale(12.0f, 8.0f, 8.0f);
-
             glm::vec3 shakeOffset(0.0f);
+
             if (chestShaking)
             {
                 float shakeSpeed = 8.0f;
@@ -481,28 +512,30 @@ int main()
                 );
             }
 
-            ModelMatrix = glm::translate(glm::mat4(1.0f), chestBasePos + shakeOffset);
-            ModelMatrix = glm::scale(ModelMatrix, chestScale);
+            glm::vec3 chestPos = chestBasePos;
+            chestPos.y = mainFloorTopY() + 10.0f;
+
+            ModelMatrix = glm::mat4(1.0f);
+            ModelMatrix = glm::translate(ModelMatrix, chestPos + shakeOffset);
+            ModelMatrix = glm::scale(ModelMatrix, glm::vec3(CHEST_OBJ_SCALE));
 
             MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
             glUniformMatrix4fv(MatrixID2, 1, GL_FALSE, &MVP[0][0]);
             glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
-            box.draw(shader);
+            chestMesh.draw(shader);
         }
 
-        // ===================== DRAW CAVE 1 (zone 1) =====================
+        // ===================== DRAW CAVE 1 =====================
         if (currentZone == 1)
         {
-            // Cave plane
             ModelMatrix = glm::mat4(1.0f);
-            ModelMatrix = glm::translate(ModelMatrix, cave1Origin + glm::vec3(0.0f, caveFloorY, caveFloorCenterZ));
+            ModelMatrix = glm::translate(ModelMatrix, cave1Origin + glm::vec3(0.0f, caveFloorY, 0.0f));
             ModelMatrix = glm::scale(ModelMatrix, glm::vec3(caveFloorSize, 1.0f, caveFloorSize));
             MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
             glUniformMatrix4fv(MatrixID2, 1, GL_FALSE, &MVP[0][0]);
             glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
-            cavePlane.draw(shader);
+            plane.draw(shader);
 
-            // Enemy
             ModelMatrix = glm::translate(glm::mat4(1.0f), cave1ObstaclePos);
             ModelMatrix = glm::scale(ModelMatrix, glm::vec3(18.0f, 18.0f, 18.0f));
             MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
@@ -510,7 +543,6 @@ int main()
             glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
             rockBox.draw(shader);
 
-            // Coin
             if (cave1CoinVisible)
             {
                 float t = glfwGetTime();
@@ -519,7 +551,6 @@ int main()
                 ModelMatrix = glm::translate(glm::mat4(1.0f), cave1CoinBase + glm::vec3(0.0f, floatY, 0.0f));
                 ModelMatrix = glm::rotate(ModelMatrix, t * 4.0f, glm::vec3(0, 1, 0));
                 ModelMatrix = glm::scale(ModelMatrix, glm::vec3(4.0f, 4.0f, 0.8f));
-
                 MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
                 glUniformMatrix4fv(MatrixID2, 1, GL_FALSE, &MVP[0][0]);
                 glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
@@ -527,19 +558,17 @@ int main()
             }
         }
 
-        // ===================== DRAW CAVE 2 (zone 2) =====================
+        // ===================== DRAW CAVE 2 =====================
         if (currentZone == 2)
         {
-            // Cave plane
             ModelMatrix = glm::mat4(1.0f);
-            ModelMatrix = glm::translate(ModelMatrix, cave2Origin + glm::vec3(0.0f, caveFloorY, caveFloorCenterZ));
+            ModelMatrix = glm::translate(ModelMatrix, cave2Origin + glm::vec3(0.0f, caveFloorY, 0.0f));
             ModelMatrix = glm::scale(ModelMatrix, glm::vec3(caveFloorSize, 1.0f, caveFloorSize));
             MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
             glUniformMatrix4fv(MatrixID2, 1, GL_FALSE, &MVP[0][0]);
             glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
-            cavePlane.draw(shader);
+            plane.draw(shader);
 
-            // Enemy A
             ModelMatrix = glm::translate(glm::mat4(1.0f), cave2EnemyA_Pos);
             ModelMatrix = glm::scale(ModelMatrix, glm::vec3(18.0f, 18.0f, 18.0f));
             MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
@@ -547,7 +576,6 @@ int main()
             glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
             rockBox.draw(shader);
 
-            // Enemy B
             ModelMatrix = glm::translate(glm::mat4(1.0f), cave2EnemyB_Pos);
             ModelMatrix = glm::scale(ModelMatrix, glm::vec3(18.0f, 18.0f, 18.0f));
             MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
@@ -555,7 +583,6 @@ int main()
             glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
             rockBox.draw(shader);
 
-            // Coin in cave2
             if (cave2CoinVisible)
             {
                 float t = glfwGetTime();
@@ -564,7 +591,6 @@ int main()
                 ModelMatrix = glm::translate(glm::mat4(1.0f), cave2CoinBase + glm::vec3(0.0f, floatY, 0.0f));
                 ModelMatrix = glm::rotate(ModelMatrix, t * 4.0f, glm::vec3(0, 1, 0));
                 ModelMatrix = glm::scale(ModelMatrix, glm::vec3(4.0f, 4.0f, 0.8f));
-
                 MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
                 glUniformMatrix4fv(MatrixID2, 1, GL_FALSE, &MVP[0][0]);
                 glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
@@ -582,7 +608,6 @@ void processKeyboardInput()
 {
     float cameraSpeed = 30.0f * deltaTime;
 
-    // translation
     if (window.isPressed(GLFW_KEY_W)) camera.keyboardMoveFront(cameraSpeed);
     if (window.isPressed(GLFW_KEY_S)) camera.keyboardMoveBack(cameraSpeed);
     if (window.isPressed(GLFW_KEY_A)) camera.keyboardMoveLeft(cameraSpeed);
@@ -590,7 +615,6 @@ void processKeyboardInput()
     if (window.isPressed(GLFW_KEY_R)) camera.keyboardMoveUp(cameraSpeed);
     if (window.isPressed(GLFW_KEY_F)) camera.keyboardMoveDown(cameraSpeed);
 
-    // rotation
     if (window.isPressed(GLFW_KEY_LEFT))  camera.rotateOy(cameraSpeed);
     if (window.isPressed(GLFW_KEY_RIGHT)) camera.rotateOy(-cameraSpeed);
     if (window.isPressed(GLFW_KEY_UP))    camera.rotateOx(cameraSpeed);
