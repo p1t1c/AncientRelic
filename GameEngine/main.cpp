@@ -6,6 +6,8 @@
 #include "Model Loading\meshLoaderObj.h"
 #include <cmath>
 
+bool chestShaking = true;
+glm::vec3 chestBasePos(0.0f, -18.0f, -140.0f);   // same as your chest position
 
 void processKeyboardInput ();
 
@@ -94,6 +96,21 @@ int main()
 		lastFrame = currentFrame;
 
 		processKeyboardInput();
+		// --- Stop chest shaking when pressing E near it (one press = one action) ---
+		static bool ePrevDown = false;
+		bool eDown = window.isPressed(GLFW_KEY_E);
+
+		if (eDown && !ePrevDown) // key JUST pressed
+		{
+			float distToChest = glm::length(camera.getCameraPosition() - chestBasePos);
+			if (distToChest < 200.0f)
+				// interaction radius (tweak)
+			{
+				chestShaking = false;  // stop shaking
+			}
+		}
+		ePrevDown = eDown;
+
 
 		//test mouse input
 		if (window.isMousePressed(GLFW_MOUSE_BUTTON_LEFT))
@@ -263,29 +280,32 @@ int main()
 // ===== Chest (bigger box) - SHAKING =====
 		float t = glfwGetTime();
 
-		// shake parameters (tweak these)
-		float shakeSpeed = 8.0f;     // how fast it shakes
-		float shakeAmpX = 1.2f;     // side-to-side amplitude
-		float shakeAmpZ = 0.8f;     // forward/back amplitude
-		float shakeAmpY = 0.4f;     // tiny up/down
+		float shakeSpeed = 8.0f;
+		float shakeAmpX = 1.2f;
+		float shakeAmpZ = 0.8f;
+		float shakeAmpY = 0.4f;
 
-		glm::vec3 chestBasePos(0.0f, -18.0f, -140.0f);
 		glm::vec3 chestScale(12.0f, 8.0f, 8.0f);
 
-		glm::vec3 shakeOffset(
-			shakeAmpX* std::sin(t* shakeSpeed),
-			shakeAmpY* std::sin(t* shakeSpeed * 1.7f),
-			shakeAmpZ* std::cos(t* shakeSpeed)
-		);
+		glm::vec3 shakeOffset(0.0f);
+		if (chestShaking)
+		{
+			shakeOffset = glm::vec3(
+				shakeAmpX * std::sin(t * shakeSpeed),
+				shakeAmpY * std::sin(t * shakeSpeed * 1.7f),
+				shakeAmpZ * std::cos(t * shakeSpeed)
+			);
+		}
 
 		ModelMatrix = glm::translate(glm::mat4(1.0f), chestBasePos + shakeOffset);
 		ModelMatrix = glm::scale(ModelMatrix, chestScale);
 
+		// uniforms + draw like you already do
 		MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
 		glUniformMatrix4fv(MatrixID2, 1, GL_FALSE, &MVP[0][0]);
 		glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
-
 		box.draw(shader);
+
 
 
 		window.update();
