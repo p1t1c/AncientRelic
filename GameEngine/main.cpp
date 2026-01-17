@@ -125,16 +125,6 @@ int main()
 		GLuint MatrixID2 = glGetUniformLocation(shader.getId(), "MVP");
 		GLuint ModelMatrixID = glGetUniformLocation(shader.getId(), "model");
 
-		ModelMatrix = glm::mat4(1.0);
-		ModelMatrix = glm::translate(ModelMatrix, glm::vec3(0.0f, 0.0f, 0.0f));
-		MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
-		glUniformMatrix4fv(MatrixID2, 1, GL_FALSE, &MVP[0][0]);
-		glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
-		glUniform3f(glGetUniformLocation(shader.getId(), "lightColor"), lightColor.x, lightColor.y, lightColor.z);
-		glUniform3f(glGetUniformLocation(shader.getId(), "lightPos"), lightPos.x, lightPos.y, lightPos.z);
-		glUniform3f(glGetUniformLocation(shader.getId(), "viewPos"), camera.getCameraPosition().x, camera.getCameraPosition().y, camera.getCameraPosition().z);
-
-		box.draw(shader);
 
 		///// Test plane Obj file //////
 
@@ -145,6 +135,30 @@ int main()
 		glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
 
 		plane.draw(shader);
+		// ===== Portal LEFT =====
+		ModelMatrix = glm::mat4(1.0f);
+		// position (left)
+		ModelMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(-100.0f, -5.0f, -80.0f));
+		ModelMatrix = glm::scale(ModelMatrix, glm::vec3(8.0f, 18.0f, 0.5f));
+
+		MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
+		glUniformMatrix4fv(MatrixID2, 1, GL_FALSE, &MVP[0][0]);
+		glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
+
+		box.draw(shader);
+
+
+		// ===== Portal RIGHT =====
+		ModelMatrix = glm::mat4(1.0f);
+		// position (right)
+		ModelMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(100.0f, -5.0f, -80.0f));
+		ModelMatrix = glm::scale(ModelMatrix, glm::vec3(8.0f, 18.0f, 0.5f));
+
+		MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
+		glUniformMatrix4fv(MatrixID2, 1, GL_FALSE, &MVP[0][0]);
+		glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
+
+		box.draw(shader);
 
 		window.update();
 	}
