@@ -88,12 +88,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>C:\Users\pitic\Desktop\AncientRelic\Dependencies\GLEW\include;C:\Users\pitic\Desktop\AncientRelic\Dependencies\GLFW\include;C:\Users\pitic\Desktop\AncientRelic\Dependencies\glm;C:\Users\pitic\Desktop\AncientRelic\Dependencies;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
-    <Link>
-      <AdditionalLibraryDirectories>C:\Users\pitic\Desktop\AncientRelic\Dependencies\GLEW\libs;C:\Users\pitic\Desktop\AncientRelic\Dependencies\GLFW\lib-vc2015;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>C:\Users\pitic\Desktop\AncientRelic\Dependencies\GLEW\libs\glew32.lib;C:\Users\pitic\Desktop\AncientRelic\Dependencies\GLFW\lib-vc2015\glfw3.lib;opengl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
-    </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
@@ -140,27 +135,19 @@
     <ClInclude Include="Model Loading\texture.h" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="Debug\assimpd.dll" />
-    <None Include="Debug\GameEngine.exe.recipe" />
     <None Include="Shaders\fragment_shader.glsl" />
     <None Include="Shaders\sun_fragment_shader.glsl" />
     <None Include="Shaders\sun_vertex_shader.glsl" />
     <None Include="Shaders\vertex_shader.glsl" />
   </ItemGroup>
   <ItemGroup>
-    <Image Include="Resources\Textures\orange.bmp" />
     <Image Include="Resources\Textures\rock.bmp" />
     <Image Include="Resources\Textures\wood.bmp" />
   </ItemGroup>
   <ItemGroup>
-    <Text Include="Debug\GameEngine.Build.CppClean.log" />
-    <Text Include="Debug\GameEngine.log" />
-    <Text Include="Debug\GameEngine.vcxproj.FileListAbsolute.txt" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="Resources\Models\sphere.obj">
-      <FileType>Document</FileType>
-    </None>
+    <Object Include="Resources\Models\sphere.obj">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
+    </Object>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -65,9 +65,6 @@
     <None Include="Shaders\fragment_shader.glsl" />
     <None Include="Shaders\sun_fragment_shader.glsl" />
     <None Include="Shaders\sun_vertex_shader.glsl" />
-    <None Include="Debug\assimpd.dll" />
-    <None Include="Debug\GameEngine.exe.recipe" />
-    <None Include="Resources\Models\sphere.obj" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="Resources\Textures\wood.bmp">
@@ -76,13 +73,8 @@
     <Image Include="Resources\Textures\rock.bmp">
       <Filter>Resource Files</Filter>
     </Image>
-    <Image Include="Resources\Textures\orange.bmp">
-      <Filter>Resource Files</Filter>
-    </Image>
   </ItemGroup>
   <ItemGroup>
-    <Text Include="Debug\GameEngine.Build.CppClean.log" />
-    <Text Include="Debug\GameEngine.log" />
-    <Text Include="Debug\GameEngine.vcxproj.FileListAbsolute.txt" />
+    <Object Include="Resources\Models\sphere.obj" />
   </ItemGroup>
 </Project>
