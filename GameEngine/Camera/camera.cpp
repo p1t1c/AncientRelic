@@ -48,6 +48,10 @@ void Camera::keyboardMoveBack(float cameraSpeed)
 {
     cameraPosition -= cameraViewDirection * cameraSpeed;
 }
+void Camera::setCameraPosition(const glm::vec3& pos)
+{
+    cameraPosition = pos;
+}
 
 void Camera::keyboardMoveLeft(float cameraSpeed)
 {

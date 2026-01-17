@@ -35,6 +35,8 @@ public:
     void keyboardMoveRight(float cameraSpeed);
     void keyboardMoveUp(float cameraSpeed);
     void keyboardMoveDown(float cameraSpeed);
+    void setCameraPosition(const glm::vec3& pos);
+
 
     void rotateOx(float angle);
     void rotateOy(float angle); 
