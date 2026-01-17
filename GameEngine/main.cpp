@@ -4,6 +4,8 @@
 #include "Model Loading\mesh.h"
 #include "Model Loading\texture.h"
 #include "Model Loading\meshLoaderObj.h"
+#include <cmath>
+
 
 void processKeyboardInput ();
 
@@ -124,6 +126,10 @@ int main()
 
 		GLuint MatrixID2 = glGetUniformLocation(shader.getId(), "MVP");
 		GLuint ModelMatrixID = glGetUniformLocation(shader.getId(), "model");
+		glUniform3f(glGetUniformLocation(shader.getId(), "lightColor"), lightColor.x, lightColor.y, lightColor.z);
+		glUniform3f(glGetUniformLocation(shader.getId(), "lightPos"), lightPos.x, lightPos.y, lightPos.z);
+		glUniform3f(glGetUniformLocation(shader.getId(), "viewPos"),
+			camera.getCameraPosition().x, camera.getCameraPosition().y, camera.getCameraPosition().z);
 
 
 		///// Test plane Obj file //////
@@ -159,6 +165,128 @@ int main()
 		glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
 
 		box.draw(shader);
+		// ===== 8 Columns: 4 on LEFT, 4 on RIGHT =====
+		float colXLeft = -180.0f;
+		float colXRight = 180.0f;
+		float colY = -5.0f;
+
+		float zStart = -40.0f;
+		float zStep = 120.0f;   // increase for more space
+
+		float z0 = zStart + 0 * -zStep;
+		float z1 = zStart + 1 * -zStep;
+		float z2 = zStart + 2 * -zStep;
+		float z3 = zStart + 3 * -zStep;
+
+
+
+		glm::vec3 colScale(12.0f, 45.0f, 12.0f);
+
+		auto drawColumn = [&](float x, float z)
+			{
+				ModelMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(x, colY, z));
+				ModelMatrix = glm::scale(ModelMatrix, colScale);
+
+				MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
+				glUniformMatrix4fv(MatrixID2, 1, GL_FALSE, &MVP[0][0]);
+				glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
+
+				box.draw(shader);
+			};
+
+		// Left side (4)
+		drawColumn(colXLeft, z0);
+		drawColumn(colXLeft, z1);
+		drawColumn(colXLeft, z2);
+		drawColumn(colXLeft, z3);
+
+		// Right side (4)
+		drawColumn(colXRight, z0);
+		drawColumn(colXRight, z1);
+		drawColumn(colXRight, z2);
+		drawColumn(colXRight, z3);
+
+
+		// ===== Side Columns (extreme left/right) =====
+
+// LEFT column
+		ModelMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(-180.0f, -5.0f, -120.0f));
+		ModelMatrix = glm::scale(ModelMatrix, glm::vec3(12.0f, 45.0f, 12.0f));
+		MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
+		glUniformMatrix4fv(MatrixID2, 1, GL_FALSE, &MVP[0][0]);
+		glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
+		box.draw(shader);
+
+		// RIGHT column
+		ModelMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(180.0f, -5.0f, -120.0f));
+		ModelMatrix = glm::scale(ModelMatrix, glm::vec3(12.0f, 45.0f, 12.0f));
+		MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
+		glUniformMatrix4fv(MatrixID2, 1, GL_FALSE, &MVP[0][0]);
+		glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
+		box.draw(shader);
+		// ===== Side Columns (extreme left/right) =====
+
+// LEFT column
+		ModelMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(-180.0f, -5.0f, -120.0f));
+		ModelMatrix = glm::scale(ModelMatrix, glm::vec3(12.0f, 45.0f, 12.0f));
+		MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
+		glUniformMatrix4fv(MatrixID2, 1, GL_FALSE, &MVP[0][0]);
+		glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
+		box.draw(shader);
+
+		// RIGHT column
+		ModelMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(180.0f, -5.0f, -120.0f));
+		ModelMatrix = glm::scale(ModelMatrix, glm::vec3(12.0f, 45.0f, 12.0f));
+		MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
+		glUniformMatrix4fv(MatrixID2, 1, GL_FALSE, &MVP[0][0]);
+		glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
+		box.draw(shader);
+		
+		// ===== Rocks (small boxes) =====
+		auto drawBox = [&](glm::vec3 pos, glm::vec3 scale)
+			{
+				ModelMatrix = glm::translate(glm::mat4(1.0f), pos);
+				ModelMatrix = glm::scale(ModelMatrix, scale);
+				MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
+				glUniformMatrix4fv(MatrixID2, 1, GL_FALSE, &MVP[0][0]);
+				glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
+				box.draw(shader);
+			};
+
+		drawBox(glm::vec3(-40.0f, -18.0f, -60.0f), glm::vec3(6.0f, 4.0f, 6.0f));
+		drawBox(glm::vec3(20.0f, -18.5f, -90.0f), glm::vec3(4.0f, 3.0f, 5.0f));
+		drawBox(glm::vec3(55.0f, -18.0f, -70.0f), glm::vec3(5.0f, 4.0f, 4.0f));
+		drawBox(glm::vec3(-75.0f, -18.5f, -110.0f), glm::vec3(4.0f, 2.5f, 4.0f));
+		drawBox(glm::vec3(90.0f, -18.0f, -130.0f), glm::vec3(7.0f, 3.5f, 5.0f));
+		
+		// ===== Chest (bigger box) =====
+// ===== Chest (bigger box) - SHAKING =====
+		float t = glfwGetTime();
+
+		// shake parameters (tweak these)
+		float shakeSpeed = 8.0f;     // how fast it shakes
+		float shakeAmpX = 1.2f;     // side-to-side amplitude
+		float shakeAmpZ = 0.8f;     // forward/back amplitude
+		float shakeAmpY = 0.4f;     // tiny up/down
+
+		glm::vec3 chestBasePos(0.0f, -18.0f, -140.0f);
+		glm::vec3 chestScale(12.0f, 8.0f, 8.0f);
+
+		glm::vec3 shakeOffset(
+			shakeAmpX* std::sin(t* shakeSpeed),
+			shakeAmpY* std::sin(t* shakeSpeed * 1.7f),
+			shakeAmpZ* std::cos(t* shakeSpeed)
+		);
+
+		ModelMatrix = glm::translate(glm::mat4(1.0f), chestBasePos + shakeOffset);
+		ModelMatrix = glm::scale(ModelMatrix, chestScale);
+
+		MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
+		glUniformMatrix4fv(MatrixID2, 1, GL_FALSE, &MVP[0][0]);
+		glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
+
+		box.draw(shader);
+
 
 		window.update();
 	}
