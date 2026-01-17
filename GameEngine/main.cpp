@@ -1,7 +1,4 @@
-﻿// main.cpp (FULL FILE - main room + portals + NEW column OBJ rows + rocks + chest OBJ shake
-// + cave1 simple plane + fast enemy + orange coin pickup -> back to main
-// + cave2 simple plane + TWO mirrored enemies (faster) + orange coin pickup -> back to main
-// + UNDERWATER FOG (shader uniforms))
+﻿// main.cpp (FULL FILE - main room + portals + columns + rocks + chest + caves + underwater fog)
 
 #include "Graphics\\window.h"
 #include "Camera\\camera.h"
@@ -67,14 +64,14 @@ glm::vec3 mainSpawnPos(0.0f, 0.0f, 100.0f);
 bool chestShaking = true;
 glm::vec3 chestBasePos(0.0f, -18.0f, -140.0f);
 
-glm::vec3 portalLeftPos(-100.0f, -5.0f, -80.0f);
-glm::vec3 portalRightPos(100.0f, -5.0f, -80.0f);
+glm::vec3 portalLeftPos(-100.0f, 15.0f, -80.0f);
+glm::vec3 portalRightPos(100.0f, 15.0f, -80.0f);
 glm::vec3 portalHalfSize(25.0f, 50.0f, 25.0f);
 
 glm::vec3 caveSpawnLeft(0.0f, 0.0f, -500.0f);
 glm::vec3 caveSpawnRight(50.0f, 0.0f, -500.0f);
 
-// ===================== Cave 1 Stuff (SIMPLE) =====================
+// ===================== Cave 1 Stuff =====================
 glm::vec3 cave1Origin;
 glm::vec3 cave1ObstaclePos;
 glm::vec3 cave1ObstacleTarget;
@@ -87,7 +84,7 @@ bool      cave1CoinVisible = true;
 float caveFloorY = -20.0f;
 float caveFloorSize = 1200.0f;
 
-// ===================== Cave 2 Stuff (SIMPLE + 2 MIRROR ENEMIES) =====================
+// ===================== Cave 2 Stuff =====================
 glm::vec3 cave2Origin;
 
 glm::vec3 cave2EnemyA_Pos;
@@ -112,9 +109,9 @@ int main()
     GLuint texOrange = loadBMP("Resources/Textures/orange.bmp");
     GLuint texUnderSand = loadBMP("Resources/Textures/underwater_sand.bmp");
 
-    // Column texture BMP (schimbă numele dacă ai altul)
+    // Column texture BMP
     GLuint texColumn = loadBMP("Resources/Textures/987.bmp");
-    if (texColumn == 0) texColumn = texRock; // fallback
+    if (texColumn == 0) texColumn = texRock;
 
     glEnable(GL_DEPTH_TEST);
     srand(42);
@@ -122,18 +119,16 @@ int main()
     MeshLoaderObj loader;
     Mesh sun = loader.loadObj("Resources/Models/sphere.obj");
 
-    // wood cube (portals)
+    // wood cube (used for portals)
     std::vector<Texture> woodTex(1);
     woodTex[0].id = texWood;
     woodTex[0].type = "texture_diffuse";
     Mesh box = loader.loadObj("Resources/Models/cube.obj", woodTex);
 
-    // plane uses BEACH now
-
+    // plane uses underwater sand
     std::vector<Texture> planeTex(1);
     planeTex[0].id = texUnderSand;
     planeTex[0].type = "texture_diffuse";
-
     Mesh plane = loader.loadObj("Resources/Models/plane.obj", planeTex);
 
     // rock cube (rocks + enemies)
@@ -148,29 +143,20 @@ int main()
     coinTex[0].type = "texture_diffuse";
     Mesh coinBox = loader.loadObj("Resources/Models/cube.obj", coinTex);
 
-    // ===== CHEST OBJ =====
-    std::vector<Texture> chestTex(1);
-    chestTex[0].id = texWood;
-    chestTex[0].type = "texture_diffuse";
-    Mesh chestMesh = loader.loadObj("Resources/Models/chest_fixed_tri.obj", chestTex);
-    const float CHEST_OBJ_SCALE = 15.0f;
+    // ===== CHEST OBJ (NEW: uses MTL) =====
+    // chest.obj + chest.mtl + wood_planks_new_0025_01_s.bmp trebuie sa fie in Resources/Models/
+    Mesh chestMesh = loader.loadObj("Resources/Models/chest.obj");
+    const float CHEST_OBJ_SCALE = 20.0f;
 
-    // ===== NEW COLUMN OBJ (IMPORTANT) =====
+    // column OBJ
     std::vector<Texture> colTex(1);
     colTex[0].id = texColumn;
     colTex[0].type = "texture_diffuse";
     Mesh columnMesh = loader.loadObj("Resources/Models/column.obj", colTex);
 
-    // Column tuning (make them BIGGER)
-    const float COLUMN_SCALE = 0.80f;        // <-- BIGGER (schimbă 0.4 / 0.8 dacă vrei)
-    const float COLUMN_ROT_X = 0.0f;         // încercăm 0 prima dată; dacă e culcat: pune 90 sau -90
-    const float COLUMN_ROT_Y = 90.0f;
-    const float COLUMN_ROT_Z = 0.0f;
-
-    // Model pivot fix: OBJ-ul are Y în jur de 300, deci trebuie “tras” în jos.
-    // Dacă încă e sub podea -> fă mai puțin negativ (ex -120)
-    // Dacă plutește -> fă mai negativ (ex -380)
-    const float COLUMN_BASE_Y_FIX = -300.0f; // în unități “model”, NU world
+    // Column tuning
+    const float COLUMN_SCALE = 0.80f;
+    const float COLUMN_BASE_Y_FIX = -300.0f;
 
     // E edge detection
     bool ePrevDown = false;
@@ -203,7 +189,7 @@ int main()
                 lastTeleportTime = now;
 
                 cave1Origin = caveSpawnLeft;
-                camera.setCameraPosition(cave1Origin + glm::vec3(0.0f, 0.0f, 0.0f));
+                camera.setCameraPosition(cave1Origin + glm::vec3(0.0f));
 
                 cave1ObstaclePos = cave1Origin + glm::vec3(0.0f, -10.0f, -220.0f);
                 cave1ObstacleTarget = cave1ObstaclePos;
@@ -218,7 +204,7 @@ int main()
                 lastTeleportTime = now;
 
                 cave2Origin = caveSpawnRight;
-                camera.setCameraPosition(cave2Origin + glm::vec3(0.0f, 0.0f, 0.0f));
+                camera.setCameraPosition(cave2Origin + glm::vec3(0.0f));
 
                 cave2EnemyA_Pos = cave2Origin + glm::vec3(120.0f, -10.0f, -220.0f);
                 cave2EnemyA_Target = cave2EnemyA_Pos;
@@ -275,7 +261,7 @@ int main()
             glm::vec3 enemyHalf(6.0f, 8.0f, 6.0f);
             if (pointInAABB(camera.getCameraPosition(), cave1ObstaclePos, enemyHalf))
             {
-                camera.setCameraPosition(cave1Origin + glm::vec3(0.0f, 0.0f, 0.0f));
+                camera.setCameraPosition(cave1Origin + glm::vec3(0.0f));
             }
 
             if (cave1CoinVisible && eJustPressed)
@@ -333,7 +319,7 @@ int main()
             if (pointInAABB(camPos, cave2EnemyA_Pos, enemyHalf) ||
                 pointInAABB(camPos, cave2EnemyB_Pos, enemyHalf))
             {
-                camera.setCameraPosition(cave2Origin + glm::vec3(0.0f, 0.0f, 0.0f));
+                camera.setCameraPosition(cave2Origin + glm::vec3(0.0f));
             }
 
             if (cave2CoinVisible && eJustPressed)
@@ -381,9 +367,11 @@ int main()
         shader.use();
 
         GLuint MatrixID2 = glGetUniformLocation(shader.getId(), "MVP");
-        GLuint ModelMatrixID = glGetUniformLocation(shader.getId(), "model");// ===== TOP LIGHT that follows the player (so textures are always readable) =====
-        lightPos = camera.getCameraPosition() + glm::vec3(0.0f, 350.0f, 0.0f); // above you
-        lightColor = glm::vec3(0.8f, 0.8f, 0.8f);  // brighter than 1.0
+        GLuint ModelMatrixID = glGetUniformLocation(shader.getId(), "model");
+
+        // ===== TOP LIGHT follows player =====
+        lightPos = camera.getCameraPosition() + glm::vec3(0.0f, 350.0f, 0.0f);
+        lightColor = glm::vec3(0.8f, 0.8f, 0.8f);
 
         glUniform3f(glGetUniformLocation(shader.getId(), "lightColor"),
             lightColor.x, lightColor.y, lightColor.z);
@@ -395,15 +383,17 @@ int main()
             camera.getCameraPosition().z);
 
         // ===== UNDERWATER FOG uniforms =====
-        // active în toate zonele (poți condiționa dacă vrei doar în cave)
         glUniform1i(glGetUniformLocation(shader.getId(), "uUseFog"), 1);
-        glUniform3f(glGetUniformLocation(shader.getId(), "uFogColor"), 0.05f, 0.35f, 0.55f); // underwater tint
+        glUniform3f(glGetUniformLocation(shader.getId(), "uFogColor"), 0.05f, 0.35f, 0.55f);
         glUniform1f(glGetUniformLocation(shader.getId(), "uFogNear"), 40.0f);
         glUniform1f(glGetUniformLocation(shader.getId(), "uFogFar"), 420.0f);
 
-        // (pentru linearize depth)
         glUniform1f(glGetUniformLocation(shader.getId(), "uNear"), 0.1f);
         glUniform1f(glGetUniformLocation(shader.getId(), "uFar"), 10000.0f);
+
+        // Default: NOT portal (these uniforms must exist in fragment shader)
+        glUniform1i(glGetUniformLocation(shader.getId(), "uIsPortal"), 0);
+        glUniform1f(glGetUniformLocation(shader.getId(), "uPortalAlpha"), 1.0f);
 
         // ===================== DRAW MAIN ROOM =====================
         if (currentZone == 0)
@@ -417,7 +407,14 @@ int main()
             glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
             plane.draw(shader);
 
-            // portals
+            // ===== portals (transparent + glow) =====
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+            glUniform1i(glGetUniformLocation(shader.getId(), "uIsPortal"), 1);
+            glUniform1f(glGetUniformLocation(shader.getId(), "uPortalAlpha"), 0.35f);
+
+            // left portal
             ModelMatrix = glm::translate(glm::mat4(1.0f), portalLeftPos);
             ModelMatrix = glm::scale(ModelMatrix, glm::vec3(8.0f, 18.0f, 0.5f));
             MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
@@ -425,6 +422,7 @@ int main()
             glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
             box.draw(shader);
 
+            // right portal
             ModelMatrix = glm::translate(glm::mat4(1.0f), portalRightPos);
             ModelMatrix = glm::scale(ModelMatrix, glm::vec3(8.0f, 18.0f, 0.5f));
             MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
@@ -432,8 +430,12 @@ int main()
             glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
             box.draw(shader);
 
-            // ===== NEW COLUMN ROWS (OBJ) =====
-            // dacă vrei mai aproape/depărtat, schimbă COL_X_... și COL_Z_...
+            // back to normal
+            glUniform1i(glGetUniformLocation(shader.getId(), "uIsPortal"), 0);
+            glUniform1f(glGetUniformLocation(shader.getId(), "uPortalAlpha"), 1.0f);
+            glDisable(GL_BLEND);
+
+            // ===== columns =====
             const int   NUM_COLS_PER_SIDE = 8;
             const float COL_X_LEFT = -260.0f;
             const float COL_X_RIGHT = 260.0f;
@@ -444,23 +446,13 @@ int main()
                 {
                     glm::mat4 M = glm::mat4(1.0f);
 
-                    // 1) world position (pe podea)
                     const float COLUMN_WORLD_LIFT = 240.0f;
                     M = glm::translate(M, glm::vec3(x, mainFloorTopY() + COLUMN_WORLD_LIFT, z));
 
-                    // 2) ROTIRE: ca să fie “spre interior”
-                    // stânga privește spre dreapta, dreapta privește spre stânga
                     float yaw = isLeft ? 222290.0f : -222290.0f;
                     M = glm::rotate(M, glm::radians(yaw), glm::vec3(0, 1, 0));
 
-
-                    // dacă vrei să fie “întoarsă” pe lung (încă 90):
-                    // M = glm::rotate(M, glm::radians(90.0f), glm::vec3(0, 0, 1));
-
-                    // 3) scale
                     M = glm::scale(M, glm::vec3(COLUMN_SCALE));
-
-                    // 4) pivot/model fix (în unități de model, după scale e ok aici)
                     M = glm::translate(M, glm::vec3(0.0f, COLUMN_BASE_Y_FIX, 0.0f));
 
                     glm::mat4 mvp = ProjectionMatrix * ViewMatrix * M;
@@ -470,20 +462,17 @@ int main()
                     columnMesh.draw(shader);
                 };
 
-
             for (int i = 0; i < NUM_COLS_PER_SIDE; i++)
             {
                 float z = COL_Z_START - i * COL_Z_STEP;
-
-                drawColumnOBJ(COL_X_LEFT, z, true);   // left side
-                drawColumnOBJ(COL_X_RIGHT, z, false);  // right side
+                drawColumnOBJ(COL_X_LEFT, z, true);
+                drawColumnOBJ(COL_X_RIGHT, z, false);
             }
-
 
             // rocks aligned to floor
             auto drawRock = [&](glm::vec3 pos, glm::vec3 scale)
                 {
-                    pos.y = mainFloorTopY() + scale.y * 0.5f;
+                    pos.y = mainFloorTopY() + scale.y * 0.5f - 5.0f;
 
                     glm::mat4 M = glm::translate(glm::mat4(1.0f), pos);
                     M = glm::scale(M, scale);
@@ -516,7 +505,7 @@ int main()
             }
 
             glm::vec3 chestPos = chestBasePos;
-            chestPos.y = mainFloorTopY() + 10.0f;
+            chestPos.y = mainFloorTopY() ;
 
             ModelMatrix = glm::mat4(1.0f);
             ModelMatrix = glm::translate(ModelMatrix, chestPos + shakeOffset);
@@ -548,11 +537,11 @@ int main()
 
             if (cave1CoinVisible)
             {
-                float t = glfwGetTime();
-                float floatY = std::sin(t * 2.2f) * 3.0f;
+                float t2 = glfwGetTime();
+                float floatY = std::sin(t2 * 2.2f) * 3.0f;
 
                 ModelMatrix = glm::translate(glm::mat4(1.0f), cave1CoinBase + glm::vec3(0.0f, floatY, 0.0f));
-                ModelMatrix = glm::rotate(ModelMatrix, t * 4.0f, glm::vec3(0, 1, 0));
+                ModelMatrix = glm::rotate(ModelMatrix, t2 * 4.0f, glm::vec3(0, 1, 0));
                 ModelMatrix = glm::scale(ModelMatrix, glm::vec3(4.0f, 4.0f, 0.8f));
                 MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
                 glUniformMatrix4fv(MatrixID2, 1, GL_FALSE, &MVP[0][0]);
@@ -588,11 +577,11 @@ int main()
 
             if (cave2CoinVisible)
             {
-                float t = glfwGetTime();
-                float floatY = std::sin(t * 2.2f) * 3.0f;
+                float t2 = glfwGetTime();
+                float floatY = std::sin(t2 * 2.2f) * 3.0f;
 
                 ModelMatrix = glm::translate(glm::mat4(1.0f), cave2CoinBase + glm::vec3(0.0f, floatY, 0.0f));
-                ModelMatrix = glm::rotate(ModelMatrix, t * 4.0f, glm::vec3(0, 1, 0));
+                ModelMatrix = glm::rotate(ModelMatrix, t2 * 4.0f, glm::vec3(0, 1, 0));
                 ModelMatrix = glm::scale(ModelMatrix, glm::vec3(4.0f, 4.0f, 0.8f));
                 MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
                 glUniformMatrix4fv(MatrixID2, 1, GL_FALSE, &MVP[0][0]);

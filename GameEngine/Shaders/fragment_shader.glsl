@@ -20,10 +20,13 @@ uniform float uFogFar;
 uniform float uNear;
 uniform float uFar;
 
+// Portal
+uniform int   uIsPortal;       // 0 normal, 1 portal
+uniform float uPortalAlpha;    // ex: 0.25 - 0.45
+
 float linearizeDepth(float depth)
 {
-    // depth in [0..1] from gl_FragCoord.z
-    float z = depth * 2.0 - 1.0; // back to NDC
+    float z = depth * 2.0 - 1.0;
     return (2.0 * uNear * uFar) / (uFar + uNear - z * (uFar - uNear));
 }
 
@@ -31,20 +34,18 @@ void main()
 {
     vec3 albedo = texture(texture_diffuse1, TexCoords).rgb;
 
-    // --- Lighting (strong ambient so textures are readable) ---
+    // --- Lighting ---
     vec3 N = normalize(Normal);
     vec3 L = normalize(lightPos - FragPos);
 
     float diff = max(dot(N, L), 0.0);
 
-    // ambient/diffuse/spec tuning (make textures pop)
-    float ambientStrength = 0.70;    // BIG ambient -> visible
+    float ambientStrength = 0.70;
     float diffuseStrength = 1.10;
     float specStrength    = 0.12;
 
-    vec3 ambient = ambientStrength * lightColor;
-
-    vec3 diffuse = diffuseStrength * diff * lightColor;
+    vec3 ambient  = ambientStrength * lightColor;
+    vec3 diffuse  = diffuseStrength * diff * lightColor;
 
     vec3 V = normalize(viewPos - FragPos);
     vec3 R = reflect(-L, N);
@@ -53,15 +54,40 @@ void main()
 
     vec3 lit = (ambient + diffuse + specular) * albedo;
 
-    // --- Fog (apply AFTER lighting, so it doesn't kill texture) ---
+    // --- Portal glow (subtle emissive + transparency) ---
+    float alpha = 1.0;
+
+    if (uIsPortal == 1)
+    {
+        // Glow stronger at edges based on UV distance from center
+        vec2 p = TexCoords - vec2(0.5);
+        float r = length(p);
+
+        float edgeGlow = smoothstep(0.25, 0.55, r) * (1.0 - smoothstep(0.55, 0.78, r));
+        float softGlow = 1.0 - smoothstep(0.0, 0.65, r);
+
+        float glow = 0.25 * softGlow + 0.85 * edgeGlow;
+
+        // a bit of animated shimmer (optional, low amplitude)
+        // (if you don't want animation, delete next 2 lines and keep glow)
+        float shimmer = 0.05 * sin(20.0 * TexCoords.x) * sin(16.0 * TexCoords.y);
+        glow = clamp(glow + shimmer, 0.0, 1.0);
+
+        vec3 emissive = vec3(1.00, 0.15, 1.00) * glow;  // magenta neon
+
+
+        lit += emissive*2;
+
+        alpha = uPortalAlpha;
+    }
+
+    // --- Fog AFTER lighting ---
     if (uUseFog == 1)
     {
         float dist = linearizeDepth(gl_FragCoord.z);
-
         float fogFactor = clamp((uFogFar - dist) / (uFogFar - uFogNear), 0.0, 1.0);
-        // fogFactor=1 -> no fog, fogFactor=0 -> full fog
         lit = mix(uFogColor, lit, fogFactor);
     }
 
-    FragColor = vec4(lit, 1.0);
+    FragColor = vec4(lit, alpha);
 }

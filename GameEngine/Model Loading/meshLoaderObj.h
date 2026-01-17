@@ -1,18 +1,22 @@
 #pragma once
-
+#include <string>
 #include <vector>
-#include <glew.h>
-#include <glfw3.h>
-#include <glm.hpp>
-#include <gtc\matrix_transform.hpp>
-#include <gtc\type_ptr.hpp>
+
 #include "mesh.h"
+#include "texture.h"
 
 class MeshLoaderObj
 {
-	public:
-		MeshLoaderObj();
-		Mesh loadObj(const std::string &filename, std::vector<Texture> textures);
-		Mesh loadObj(const std::string &filename);
-};
+public:
+    MeshLoaderObj();
 
+    // Uses OBJ + (optional) MTL if present
+    Mesh loadObj(const std::string& filename);
+
+    // Uses OBJ geometry only (ignores MTL) and applies given textures
+    Mesh loadObj(const std::string& filename, std::vector<Texture> textures);
+
+private:
+    // internal: load geometry; if loadMaterials=true, read mtllib/usemtl/map_Kd
+    Mesh loadObjInternal(const std::string& filename, bool loadMaterials);
+};
