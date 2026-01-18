@@ -1,23 +1,11 @@
 ﻿// main.cpp (FULL FILE - main room + portals + columns + rocks + chest + caves + underwater fog)
 //
-// ✅ Modifications included:
-// 1) Loads Shark.obj (which references Shark.mtl) once.
-// 2) Replaces Cave 1 obstacle cube with the shark model.
-// 3) Replaces Cave 2 enemy A and enemy B cubes with sharks.
-// 4) Loads statue.obj (which references statue.mtl) once.
-// 5) Replaces BOTH cave coins (cave1 + cave2) with the statue model (still floats + spins).
-// 6) Adds detailed comments throughout the file to help you read + learn.
+// ✅ AABB portals + ✅ Octree shark collision
+// ✅ NEW: Complex lighting (DirLight + PointLights + SpotLight) for the NEW fragment shader
 //
-// ⚠️ IMPORTANT ABOUT FILE NAMES / CASE:
-// You said your files are named exactly:
-//   Shark.obj / Shark.mtl
-//   statue.obj / statue.mtl
-//
-// - This code loads: "Resources/Models/Shark.obj" and "Resources/Models/statue.obj"
-// - Inside each OBJ, the mtllib line MUST match exactly (same capitalization):
-//     Shark.obj  -> mtllib Shark.mtl
-//     statue.obj -> mtllib statue.mtl
-// If the mtllib name mismatches, the model may load but appear untextured/white.
+// IMPORTANT: VARIANTA 1
+// - NU modific header-ele tale de include (le las exact cum sunt)
+// - Repar eroarea C2662 schimband helper-ele sa primeasca Shader& (NON-CONST)
 
 #include "Graphics\\window.h"
 #include "Camera\\camera.h"
@@ -26,20 +14,25 @@
 #include "Model Loading\\texture.h"
 #include "Model Loading\\meshLoaderObj.h"
 
+// ✅ NEW complex collision (Octree)
+#include "Model Loading\\SharkCollisionOctree.h"
+
+#include <glm.hpp>
+#include <glm.hpp>
+#include <glm.hpp>
+
 #include <cmath>
 #include <cstdlib>
+#include <vector>
+#include <string>   // ✅ necesar pentru std::string / std::to_string
 
 // ===================== Helpers =====================
 
-// Returns a random float in [a, b]
 float randRange(float a, float b)
 {
     return a + (b - a) * (rand() / (float)RAND_MAX);
 }
 
-// Checks if point p is inside an axis-aligned bounding box (AABB)
-// - center: box center
-// - halfSize: half extents (half width/height/depth)
 bool pointInAABB(const glm::vec3& p, const glm::vec3& center, const glm::vec3& halfSize)
 {
     return (std::abs(p.x - center.x) <= halfSize.x) &&
@@ -47,8 +40,6 @@ bool pointInAABB(const glm::vec3& p, const glm::vec3& center, const glm::vec3& h
         (std::abs(p.z - center.z) <= halfSize.z);
 }
 
-// Mirrors a position across X relative to an origin
-// Used to keep Cave 2 enemies symmetrical
 glm::vec3 mirrorXAroundOrigin(const glm::vec3& pos, const glm::vec3& origin)
 {
     glm::vec3 d = pos - origin;
@@ -58,13 +49,9 @@ glm::vec3 mirrorXAroundOrigin(const glm::vec3& pos, const glm::vec3& origin)
 
 // ===================== Floor alignment helpers =====================
 
-// Main room floor plane Y position
 const float MAIN_FLOOR_Y = -20.0f;
-
-// "Half thickness" concept used for aligning objects on top of the floor
 const float MAIN_FLOOR_HALF_THICKNESS = 0.5f;
 
-// Returns the top Y of the main floor
 inline float mainFloorTopY()
 {
     return MAIN_FLOOR_Y + MAIN_FLOOR_HALF_THICKNESS;
@@ -80,14 +67,7 @@ float lastFrame = 0.0f;
 Window window("Game Engine", 800, 800);
 Camera camera;
 
-// Light (your shader uses lightPos, lightColor, viewPos)
-glm::vec3 lightColor = glm::vec3(1.0f);
-glm::vec3 lightPos = glm::vec3(-180.0f, 100.0f, -200.0f);
-
-// Zones:
-// 0 = main room
-// 1 = cave 1
-// 2 = cave 2
+// Zones: 0 = main room, 1 = cave 1, 2 = cave 2
 int currentZone = 0;
 
 // Teleport cooldown
@@ -119,7 +99,6 @@ float     cave1NextTargetTime = 0.0f;
 glm::vec3 cave1CoinBase;
 bool      cave1CoinVisible = true;
 
-// Cave terrain
 float caveFloorY = -20.0f;
 float caveFloorSize = 1200.0f;
 
@@ -136,12 +115,77 @@ glm::vec3 cave2EnemyB_Pos;
 glm::vec3 cave2CoinBase;
 bool      cave2CoinVisible = true;
 
+// ==========================================================
+// ✅ Shark collision settings
+// ==========================================================
+
+static const float PLAYER_RADIUS_WORLD = 6.0f;
+static float lastSharkHitTime = -1000.0f;
+static const float SHARK_HIT_COOLDOWN = 0.8f;
+
+// ==========================================================
+// ✅ Lighting helper setters for NEW fragment shader
+//    VARIANTA 1: Shader& (NON-CONST) ca sa nu mai crape la getId()
+// ==========================================================
+
+static void setMaterialUniforms(Shader& shader, float ambient, float spec, float shininess)
+{
+    glUniform1f(glGetUniformLocation(shader.getId(), "uAmbientStrength"), ambient);
+    glUniform1f(glGetUniformLocation(shader.getId(), "uSpecStrength"), spec);
+    glUniform1f(glGetUniformLocation(shader.getId(), "uShininess"), shininess);
+}
+
+static void setDirLight(Shader& shader, bool enabled,
+    const glm::vec3& dir, const glm::vec3& color, float intensity)
+{
+    glUniform1i(glGetUniformLocation(shader.getId(), "uUseDirLight"), enabled ? 1 : 0);
+    if (!enabled) return;
+
+    glUniform3f(glGetUniformLocation(shader.getId(), "uDirLight.direction"), dir.x, dir.y, dir.z);
+    glUniform3f(glGetUniformLocation(shader.getId(), "uDirLight.color"), color.x, color.y, color.z);
+    glUniform1f(glGetUniformLocation(shader.getId(), "uDirLight.intensity"), intensity);
+}
+
+static void setPointLight(Shader& shader, int idx,
+    const glm::vec3& pos, const glm::vec3& color, float intensity,
+    float constant, float linear, float quadratic)
+{
+    std::string base = "uPointLights[" + std::to_string(idx) + "].";
+
+    glUniform3f(glGetUniformLocation(shader.getId(), (base + "position").c_str()), pos.x, pos.y, pos.z);
+    glUniform3f(glGetUniformLocation(shader.getId(), (base + "color").c_str()), color.x, color.y, color.z);
+    glUniform1f(glGetUniformLocation(shader.getId(), (base + "intensity").c_str()), intensity);
+
+    glUniform1f(glGetUniformLocation(shader.getId(), (base + "constant").c_str()), constant);
+    glUniform1f(glGetUniformLocation(shader.getId(), (base + "linear").c_str()), linear);
+    glUniform1f(glGetUniformLocation(shader.getId(), (base + "quadratic").c_str()), quadratic);
+}
+
+static void setSpotLight(Shader& shader, bool enabled,
+    const glm::vec3& pos, const glm::vec3& dir, const glm::vec3& color, float intensity,
+    float cutOffCos, float outerCutOffCos,
+    float constant, float linear, float quadratic)
+{
+    glUniform1i(glGetUniformLocation(shader.getId(), "uUseSpotLight"), enabled ? 1 : 0);
+    if (!enabled) return;
+
+    glUniform3f(glGetUniformLocation(shader.getId(), "uSpotLight.position"), pos.x, pos.y, pos.z);
+    glUniform3f(glGetUniformLocation(shader.getId(), "uSpotLight.direction"), dir.x, dir.y, dir.z);
+    glUniform3f(glGetUniformLocation(shader.getId(), "uSpotLight.color"), color.x, color.y, color.z);
+    glUniform1f(glGetUniformLocation(shader.getId(), "uSpotLight.intensity"), intensity);
+
+    glUniform1f(glGetUniformLocation(shader.getId(), "uSpotLight.cutOff"), cutOffCos);
+    glUniform1f(glGetUniformLocation(shader.getId(), "uSpotLight.outerCutOff"), outerCutOffCos);
+
+    glUniform1f(glGetUniformLocation(shader.getId(), "uSpotLight.constant"), constant);
+    glUniform1f(glGetUniformLocation(shader.getId(), "uSpotLight.linear"), linear);
+    glUniform1f(glGetUniformLocation(shader.getId(), "uSpotLight.quadratic"), quadratic);
+}
+
 int main()
 {
-    // Background color (blue-ish underwater)
     glClearColor(0.2f, 0.8f, 1.0f, 1.0f);
 
-    // Main shader + special sun shader
     Shader shader("Shaders/vertex_shader.glsl", "Shaders/fragment_shader.glsl");
     Shader sunShader("Shaders/sun_vertex_shader.glsl", "Shaders/sun_fragment_shader.glsl");
 
@@ -149,16 +193,13 @@ int main()
 
     GLuint texWood = loadBMP("Resources/Textures/wood.bmp");
     GLuint texRock = loadBMP("Resources/Textures/rock.bmp");
-    GLuint texOrange = loadBMP("Resources/Textures/orange.bmp");             // still used by other things if needed
+    GLuint texOrange = loadBMP("Resources/Textures/orange.bmp");
     GLuint texUnderSand = loadBMP("Resources/Textures/underwater_sand.bmp");
 
     GLuint texColumn = loadBMP("Resources/Textures/987.bmp");
     if (texColumn == 0) texColumn = texRock;
 
-    // Depth test is essential for 3D visibility
     glEnable(GL_DEPTH_TEST);
-
-    // Deterministic random values each run
     srand(42);
 
     MeshLoaderObj loader;
@@ -166,7 +207,7 @@ int main()
     // Light sphere model
     Mesh sun = loader.loadObj("Resources/Models/sphere.obj");
 
-    // Wood cube (used for portals)
+    // Wood cube (portals)
     std::vector<Texture> woodTex(1);
     woodTex[0].id = texWood;
     woodTex[0].type = "texture_diffuse";
@@ -178,49 +219,68 @@ int main()
     planeTex[0].type = "texture_diffuse";
     Mesh plane = loader.loadObj("Resources/Models/plane.obj", planeTex);
 
-    // Rock cube (used for rocks in main room; enemies were replaced by shark)
+    // Rock cube
     std::vector<Texture> rockTex(1);
     rockTex[0].id = texRock;
     rockTex[0].type = "texture_diffuse";
     Mesh rockBox = loader.loadObj("Resources/Models/cube.obj", rockTex);
 
-    // Orange cube coin mesh (NO LONGER DRAWN as the cave coin; now we use statue.obj)
+    // Coin (unused visually)
     std::vector<Texture> coinTex(1);
     coinTex[0].id = texOrange;
     coinTex[0].type = "texture_diffuse";
     Mesh coinBox = loader.loadObj("Resources/Models/cube.obj", coinTex);
 
-    // ===== CHEST OBJ =====
+    // Chest
     Mesh chestMesh = loader.loadObj("Resources/Models/chest.obj");
     const float CHEST_OBJ_SCALE = 20.0f;
 
-    // ===== COLUMN OBJ =====
+    // Column
     std::vector<Texture> colTex(1);
     colTex[0].id = texColumn;
     colTex[0].type = "texture_diffuse";
     Mesh columnMesh = loader.loadObj("Resources/Models/column.obj", colTex);
 
-    // Column tuning
     const float COLUMN_SCALE = 0.80f;
     const float COLUMN_BASE_Y_FIX = -300.0f;
 
-    // ==========================================================
-    // ✅ NEW: SHARK MODEL (replaces enemy cubes in cave 1 & 2)
-    // ==========================================================
+    // Shark
     Mesh sharkMesh = loader.loadObj("Resources/Models/Shark.obj");
-    const float SHARK_OBJ_SCALE = 8.0f;  // adjust if shark too big/small
-    const float SHARK_Y_LIFT = 0.0f;      // adjust if shark sinks into floor
+    const float SHARK_OBJ_SCALE = 8.0f;
+    const float SHARK_Y_LIFT = 0.0f;
 
-    // ==========================================================
-    // ✅ NEW: STATUE MODEL (replaces the coin in cave 1 & 2)
-    // ==========================================================
+    // Statue
     Mesh statueMesh = loader.loadObj("Resources/Models/statue.obj");
+    const float STATUE_OBJ_SCALE = 0.5f;
+    const float STATUE_Y_LIFT = 0.0f;
 
-    // Statue tuning (OBJ scale varies a lot between models)
-    const float STATUE_OBJ_SCALE = 0.5f;  // adjust to fit your cave
-    const float STATUE_Y_LIFT = 0.0f;     // adjust if floating too low/high
+    // ==========================================================
+    // ✅ BUILD OCTREE (ONE TIME) FROM SHARK TRIANGLES
+    // ==========================================================
+    std::vector<Triangle> sharkTris;
+    Octree sharkOctree;
 
-    // E edge detection
+    {
+        const auto& V = sharkMesh.vertices;
+        const auto& I = sharkMesh.indices;
+
+        sharkTris.reserve(I.size() / 3);
+
+        for (size_t k = 0; k + 2 < I.size(); k += 3)
+        {
+            glm::vec3 a = V[I[k + 0]].pos;
+            glm::vec3 b = V[I[k + 1]].pos;
+            glm::vec3 c = V[I[k + 2]].pos;
+
+            Triangle t;
+            t.a = a; t.b = b; t.c = c;
+            t.bounds = triBounds(a, b, c);
+            sharkTris.push_back(t);
+        }
+
+        sharkOctree.build(sharkTris, 8, 30);
+    }
+
     bool ePrevDown = false;
 
     // ===================== Game Loop =====================
@@ -229,15 +289,13 @@ int main()
     {
         window.clear();
 
-        // ----- Time step -----
+        // ----- Time -----
         float currentFrame = glfwGetTime();
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
-        // ----- Movement input -----
         processKeyboardInput();
 
-        // ----- "E just pressed" detection -----
         bool eDown = window.isPressed(GLFW_KEY_E);
         bool eJustPressed = (eDown && !ePrevDown);
         ePrevDown = eDown;
@@ -245,13 +303,12 @@ int main()
         float now = glfwGetTime();
 
         // ==========================================================
-        // TELEPORT via portals (only when in MAIN ROOM)
+        // TELEPORT via portals (main room only)
         // ==========================================================
         if (currentZone == 0 && (now - lastTeleportTime > 0.8f))
         {
             glm::vec3 camPos = camera.getCameraPosition();
 
-            // Left portal -> cave 1
             if (pointInAABB(camPos, portalLeftPos, portalHalfSize))
             {
                 currentZone = 1;
@@ -260,14 +317,13 @@ int main()
                 cave1Origin = caveSpawnLeft;
                 camera.setCameraPosition(cave1Origin + glm::vec3(0.0f));
 
-                cave1ObstaclePos = cave1Origin + glm::vec3(0.0f, -10.0f, -220.0f);
+                cave1ObstaclePos = cave1Origin + glm::vec3(0.0f, 0.0f, -120.0f);
                 cave1ObstacleTarget = cave1ObstaclePos;
                 cave1NextTargetTime = glfwGetTime() + 0.3f;
 
                 cave1CoinBase = cave1Origin + glm::vec3(0.0f, 10.0f, -120.0f);
                 cave1CoinVisible = true;
             }
-            // Right portal -> cave 2
             else if (pointInAABB(camPos, portalRightPos, portalHalfSize))
             {
                 currentZone = 2;
@@ -276,7 +332,7 @@ int main()
                 cave2Origin = caveSpawnRight;
                 camera.setCameraPosition(cave2Origin + glm::vec3(0.0f));
 
-                cave2EnemyA_Pos = cave2Origin + glm::vec3(120.0f, -10.0f, -220.0f);
+                cave2EnemyA_Pos = cave2Origin + glm::vec3(120.0f, 0.0f, -220.0f);
                 cave2EnemyA_Target = cave2EnemyA_Pos;
                 cave2EnemyA_NextTargetTime = glfwGetTime() + 0.3f;
 
@@ -288,32 +344,28 @@ int main()
         }
 
         // ==========================================================
-        // MAIN ROOM interaction: stop chest shaking if E pressed near it
+        // MAIN ROOM: stop chest shaking
         // ==========================================================
-        if (currentZone == 0)
+        if (currentZone == 0 && eJustPressed)
         {
-            if (eJustPressed)
-            {
-                float distToChest = glm::length(camera.getCameraPosition() - chestBasePos);
-                if (distToChest < 200.0f)
-                    chestShaking = false;
-            }
+            float distToChest = glm::length(camera.getCameraPosition() - chestBasePos);
+            if (distToChest < 200.0f)
+                chestShaking = false;
         }
 
         // ==========================================================
-        // CAVE 1 LOGIC: enemy movement + collision + coin pickup
+        // CAVE 1 LOGIC
         // ==========================================================
         if (currentZone == 1)
         {
             float nowT = glfwGetTime();
 
-            // Pick a new random target for the moving enemy occasionally
             if (nowT > cave1NextTargetTime)
             {
                 float rangeX = 220.0f;
                 float rangeZ = 220.0f;
 
-                glm::vec3 base = cave1Origin + glm::vec3(0.0f, -10.0f, -180.0f);
+                glm::vec3 base = cave1Origin + glm::vec3(0.0f, 0.0f, -180.0f);
 
                 cave1ObstacleTarget = base + glm::vec3(
                     randRange(-rangeX, rangeX),
@@ -324,7 +376,6 @@ int main()
                 cave1NextTargetTime = nowT + randRange(0.8f, 1.4f);
             }
 
-            // Move enemy toward target
             glm::vec3 dir = cave1ObstacleTarget - cave1ObstaclePos;
             float len = glm::length(dir);
             if (len > 0.05f)
@@ -334,14 +385,31 @@ int main()
                 cave1ObstaclePos += dir * speed * deltaTime;
             }
 
-            // Collision check vs enemy AABB (still same size logic)
-            glm::vec3 enemyHalf(6.0f, 8.0f, 6.0f);
-            if (pointInAABB(camera.getCameraPosition(), cave1ObstaclePos, enemyHalf))
+            // ✅ Octree collision
             {
-                camera.setCameraPosition(cave1Origin + glm::vec3(0.0f));
+                glm::vec3 camPosW = camera.getCameraPosition();
+
+                glm::mat4 M = glm::mat4(1.0f);
+                M = glm::translate(M, cave1ObstaclePos + glm::vec3(0.0f, SHARK_Y_LIFT, 0.0f));
+                M = glm::rotate(M, glm::radians(90.0f), glm::vec3(0, 1, 0));
+                M = glm::scale(M, glm::vec3(SHARK_OBJ_SCALE));
+
+                glm::mat4 invM = glm::inverse(M);
+
+                glm::vec3 camPosL = glm::vec3(invM * glm::vec4(camPosW, 1.0f));
+                float rLocal = PLAYER_RADIUS_WORLD / SHARK_OBJ_SCALE;
+
+                if (sharkOctree.sphereHit(camPosL, rLocal))
+                {
+                    float tNow = glfwGetTime();
+                    if (tNow - lastSharkHitTime > SHARK_HIT_COOLDOWN)
+                    {
+                        lastSharkHitTime = tNow;
+                        camera.setCameraPosition(cave1Origin + glm::vec3(0.0f));
+                    }
+                }
             }
 
-            // Coin pickup (now it's a statue visually, but same gameplay)
             if (cave1CoinVisible && eJustPressed)
             {
                 float tCoin = glfwGetTime();
@@ -360,7 +428,7 @@ int main()
         }
 
         // ==========================================================
-        // CAVE 2 LOGIC: enemy A movement + enemy B mirror + collision + coin pickup
+        // CAVE 2 LOGIC
         // ==========================================================
         if (currentZone == 2)
         {
@@ -371,7 +439,7 @@ int main()
                 float rangeX = 240.0f;
                 float rangeZ = 240.0f;
 
-                glm::vec3 base = cave2Origin + glm::vec3(0.0f, -10.0f, -180.0f);
+                glm::vec3 base = cave2Origin + glm::vec3(0.0f, 0.0f, -180.0f);
 
                 cave2EnemyA_Target = base + glm::vec3(
                     randRange(0.0f, rangeX),
@@ -391,20 +459,40 @@ int main()
                 cave2EnemyA_Pos += dirA * speedA * deltaTime;
             }
 
-            // Mirror A into B
             cave2EnemyB_Pos = mirrorXAroundOrigin(cave2EnemyA_Pos, cave2Origin);
 
-            // Collision check with either enemy
-            glm::vec3 enemyHalf(6.0f, 8.0f, 6.0f);
-            glm::vec3 camPos = camera.getCameraPosition();
-
-            if (pointInAABB(camPos, cave2EnemyA_Pos, enemyHalf) ||
-                pointInAABB(camPos, cave2EnemyB_Pos, enemyHalf))
+            // ✅ Octree collision for both sharks
             {
-                camera.setCameraPosition(cave2Origin + glm::vec3(0.0f));
+                glm::vec3 camPosW = camera.getCameraPosition();
+                float rLocal = PLAYER_RADIUS_WORLD / SHARK_OBJ_SCALE;
+
+                auto hitSharkAt = [&](const glm::vec3& pos, float yawDeg) -> bool
+                    {
+                        glm::mat4 M = glm::mat4(1.0f);
+                        M = glm::translate(M, pos + glm::vec3(0.0f, SHARK_Y_LIFT, 0.0f));
+                        M = glm::rotate(M, glm::radians(yawDeg), glm::vec3(0, 1, 0));
+                        M = glm::scale(M, glm::vec3(SHARK_OBJ_SCALE));
+
+                        glm::mat4 invM = glm::inverse(M);
+                        glm::vec3 camPosL = glm::vec3(invM * glm::vec4(camPosW, 1.0f));
+
+                        return sharkOctree.sphereHit(camPosL, rLocal);
+                    };
+
+                bool hitA = hitSharkAt(cave2EnemyA_Pos, 90.0f);
+                bool hitB = hitSharkAt(cave2EnemyB_Pos, -90.0f);
+
+                if (hitA || hitB)
+                {
+                    float tNow = glfwGetTime();
+                    if (tNow - lastSharkHitTime > SHARK_HIT_COOLDOWN)
+                    {
+                        lastSharkHitTime = tNow;
+                        camera.setCameraPosition(cave2Origin + glm::vec3(0.0f));
+                    }
+                }
             }
 
-            // Coin pickup (visual = statue)
             if (cave2CoinVisible && eJustPressed)
             {
                 float tCoin = glfwGetTime();
@@ -424,7 +512,7 @@ int main()
 
         // ===================== Render setup =====================
 
-        // ---- Sun pass ----
+        // ---- Sun pass (kept simple) ----
         sunShader.use();
 
         glm::mat4 ProjectionMatrix =
@@ -442,9 +530,11 @@ int main()
         glm::mat4 ModelMatrix = glm::mat4(1.0f);
         glm::mat4 MVP = glm::mat4(1.0f);
 
-        // Draw light sphere where the light is
+        // draw the "sun" sphere near the player as a marker
+        glm::vec3 sunPos = camera.getCameraPosition() + glm::vec3(0.0f, 350.0f, 0.0f);
+
         ModelMatrix = glm::mat4(1.0f);
-        ModelMatrix = glm::translate(ModelMatrix, lightPos);
+        ModelMatrix = glm::translate(ModelMatrix, sunPos);
         MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
         glUniformMatrix4fv(MatrixID, 1, GL_FALSE, &MVP[0][0]);
         sun.draw(sunShader);
@@ -455,37 +545,104 @@ int main()
         GLuint MatrixID2 = glGetUniformLocation(shader.getId(), "MVP");
         GLuint ModelMatrixID = glGetUniformLocation(shader.getId(), "model");
 
-        // Top light follows player (like a "headlamp")
-        lightPos = camera.getCameraPosition() + glm::vec3(0.0f, 350.0f, 0.0f);
-        lightColor = glm::vec3(0.8f, 0.8f, 0.8f);
-
-        glUniform3f(glGetUniformLocation(shader.getId(), "lightColor"),
-            lightColor.x, lightColor.y, lightColor.z);
-        glUniform3f(glGetUniformLocation(shader.getId(), "lightPos"),
-            lightPos.x, lightPos.y, lightPos.z);
+        // viewPos (needed by new shader)
         glUniform3f(glGetUniformLocation(shader.getId(), "viewPos"),
             camera.getCameraPosition().x,
             camera.getCameraPosition().y,
             camera.getCameraPosition().z);
 
-        // Underwater fog
+        // Underwater fog (same as before)
         glUniform1i(glGetUniformLocation(shader.getId(), "uUseFog"), 1);
         glUniform3f(glGetUniformLocation(shader.getId(), "uFogColor"), 0.05f, 0.35f, 0.55f);
         glUniform1f(glGetUniformLocation(shader.getId(), "uFogNear"), 40.0f);
         glUniform1f(glGetUniformLocation(shader.getId(), "uFogFar"), 420.0f);
-
-        // Needed by some fog implementations
         glUniform1f(glGetUniformLocation(shader.getId(), "uNear"), 0.1f);
         glUniform1f(glGetUniformLocation(shader.getId(), "uFar"), 10000.0f);
 
-        // Default: Not rendering portals
+        // Portal defaults
         glUniform1i(glGetUniformLocation(shader.getId(), "uIsPortal"), 0);
         glUniform1f(glGetUniformLocation(shader.getId(), "uPortalAlpha"), 1.0f);
+
+        // ===== MATERIAL defaults =====
+        setMaterialUniforms(shader, 0.20f, 0.35f, 64.0f);
+
+        // ===== LIGHTS =====
+
+        // 1) Directional light = soft "ocean" fill
+        setDirLight(shader, true,
+            glm::vec3(-0.2f, -1.0f, -0.3f),
+            glm::vec3(0.25f, 0.40f, 0.55f),
+            0.60f);
+
+        // 2) Point lights (max 8)
+        int pointCount = 0;
+
+        auto setNicePoint = [&](int idx, const glm::vec3& pos, const glm::vec3& col, float intensity)
+            {
+                setPointLight(shader, idx, pos, col, intensity,
+                    1.0f,     // constant
+                    0.014f,   // linear
+                    0.0007f); // quadratic
+            };
+
+        // portal left + right
+        setNicePoint(pointCount++, portalLeftPos, glm::vec3(0.2f, 0.7f, 1.0f), 3.0f);
+        setNicePoint(pointCount++, portalRightPos, glm::vec3(0.2f, 0.7f, 1.0f), 3.0f);
+
+        // chest glow (doar in main room)
+        float tChest = glfwGetTime();
+        glm::vec3 shakeOffset(0.0f);
+        if (currentZone == 0 && chestShaking)
+        {
+            float shakeSpeed = 8.0f;
+            shakeOffset = glm::vec3(
+                1.2f * std::sin(tChest * shakeSpeed),
+                0.4f * std::sin(tChest * shakeSpeed * 1.7f),
+                0.8f * std::cos(tChest * shakeSpeed)
+            );
+        }
+
+        glm::vec3 chestPos = chestBasePos;
+        chestPos.y = mainFloorTopY();
+        chestPos += shakeOffset;
+
+        if (currentZone == 0)
+        {
+            setNicePoint(pointCount++, chestPos + glm::vec3(0.0f, 60.0f, 0.0f),
+                glm::vec3(1.0f, 0.8f, 0.4f), 2.0f);
+        }
+
+        // statue glow in caves (optional)
+        if (currentZone == 1 && cave1CoinVisible)
+        {
+            setNicePoint(pointCount++, cave1CoinBase + glm::vec3(0.0f, 30.0f, 0.0f),
+                glm::vec3(0.8f, 0.9f, 1.0f), 1.2f);
+        }
+        if (currentZone == 2 && cave2CoinVisible)
+        {
+            setNicePoint(pointCount++, cave2CoinBase + glm::vec3(0.0f, 30.0f, 0.0f),
+                glm::vec3(0.8f, 0.9f, 1.0f), 1.2f);
+        }
+
+        if (pointCount > 8) pointCount = 8;
+        glUniform1i(glGetUniformLocation(shader.getId(), "uNumPointLights"), pointCount);
+
+        // 3) SpotLight = flashlight from camera
+        glm::vec3 cp = camera.getCameraPosition();
+        glm::vec3 cd = camera.getCameraViewDirection();
+
+        setSpotLight(shader, true,
+            cp, cd,
+            glm::vec3(0.8f, 0.9f, 1.0f),
+            2.0f,
+            glm::cos(glm::radians(12.5f)),
+            glm::cos(glm::radians(18.0f)),
+            1.0f, 0.02f, 0.001f);
 
         // ===================== DRAW MAIN ROOM =====================
         if (currentZone == 0)
         {
-            // ---- floor ----
+            // floor
             ModelMatrix = glm::mat4(1.0f);
             ModelMatrix = glm::translate(ModelMatrix, glm::vec3(0.0f, MAIN_FLOOR_Y, 0.0f));
             ModelMatrix = glm::scale(ModelMatrix, glm::vec3(2000.0f, 1.0f, 2000.0f));
@@ -494,7 +651,7 @@ int main()
             glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
             plane.draw(shader);
 
-            // ---- portals (transparent) ----
+            // portals (transparent)
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -517,19 +674,17 @@ int main()
             glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
             box.draw(shader);
 
-            // Back to normal drawing
             glUniform1i(glGetUniformLocation(shader.getId(), "uIsPortal"), 0);
             glUniform1f(glGetUniformLocation(shader.getId(), "uPortalAlpha"), 1.0f);
             glDisable(GL_BLEND);
 
-            // ---- columns ----
+            // columns
             const int   NUM_COLS_PER_SIDE = 8;
             const float COL_X_LEFT = -260.0f;
             const float COL_X_RIGHT = 260.0f;
             const float COL_Z_START = -60.0f;
             const float COL_Z_STEP = 120.0f;
 
-            // Helper lambda to draw a column at a position
             auto drawColumnOBJ = [&](float x, float z, bool isLeft)
                 {
                     glm::mat4 M = glm::mat4(1.0f);
@@ -557,10 +712,9 @@ int main()
                 drawColumnOBJ(COL_X_RIGHT, z, false);
             }
 
-            // ---- rocks aligned to floor ----
+            // rocks
             auto drawRock = [&](glm::vec3 pos, glm::vec3 scale)
                 {
-                    // Align bottom of cube to floor
                     pos.y = mainFloorTopY() + scale.y * 0.5f - 5.0f;
 
                     glm::mat4 M = glm::translate(glm::mat4(1.0f), pos);
@@ -579,25 +733,9 @@ int main()
             drawRock(glm::vec3(-75.0f, 0.0f, -110.0f), glm::vec3(4.0f, 2.5f, 4.0f));
             drawRock(glm::vec3(90.0f, 0.0f, -130.0f), glm::vec3(7.0f, 3.5f, 5.0f));
 
-            // ---- chest aligned to floor ----
-            float t = glfwGetTime();
-            glm::vec3 shakeOffset(0.0f);
-
-            if (chestShaking)
-            {
-                float shakeSpeed = 8.0f;
-                shakeOffset = glm::vec3(
-                    1.2f * std::sin(t * shakeSpeed),
-                    0.4f * std::sin(t * shakeSpeed * 1.7f),
-                    0.8f * std::cos(t * shakeSpeed)
-                );
-            }
-
-            glm::vec3 chestPos = chestBasePos;
-            chestPos.y = mainFloorTopY();
-
+            // chest
             ModelMatrix = glm::mat4(1.0f);
-            ModelMatrix = glm::translate(ModelMatrix, chestPos + shakeOffset);
+            ModelMatrix = glm::translate(ModelMatrix, chestPos);
             ModelMatrix = glm::scale(ModelMatrix, glm::vec3(CHEST_OBJ_SCALE));
 
             MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
@@ -609,7 +747,6 @@ int main()
         // ===================== DRAW CAVE 1 =====================
         if (currentZone == 1)
         {
-            // ---- cave floor ----
             ModelMatrix = glm::mat4(1.0f);
             ModelMatrix = glm::translate(ModelMatrix, cave1Origin + glm::vec3(0.0f, caveFloorY, 0.0f));
             ModelMatrix = glm::scale(ModelMatrix, glm::vec3(caveFloorSize, 1.0f, caveFloorSize));
@@ -618,29 +755,24 @@ int main()
             glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
             plane.draw(shader);
 
-            // ---- Cave 1 enemy (Shark) ----
+            // shark
             ModelMatrix = glm::translate(glm::mat4(1.0f), cave1ObstaclePos + glm::vec3(0.0f, SHARK_Y_LIFT, 0.0f));
-            ModelMatrix = glm::rotate(ModelMatrix, glm::radians(90.0f), glm::vec3(0, 1, 0)); // tweak if needed
+            ModelMatrix = glm::rotate(ModelMatrix, glm::radians(90.0f), glm::vec3(0, 1, 0));
             ModelMatrix = glm::scale(ModelMatrix, glm::vec3(SHARK_OBJ_SCALE));
             MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
             glUniformMatrix4fv(MatrixID2, 1, GL_FALSE, &MVP[0][0]);
             glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
             sharkMesh.draw(shader);
 
-            // ---- Cave 1 coin (Statue) ----
+            // statue coin
             if (cave1CoinVisible)
             {
                 float t2 = glfwGetTime();
                 float floatY = std::sin(t2 * 2.2f) * 3.0f;
 
-                // Position: base + float animation
                 ModelMatrix = glm::translate(glm::mat4(1.0f),
                     cave1CoinBase + glm::vec3(0.0f, floatY + STATUE_Y_LIFT, 0.0f));
-
-                // Spin the statue like a collectible
                 ModelMatrix = glm::rotate(ModelMatrix, t2 * 1.6f, glm::vec3(0, 1, 0));
-
-                // Scale it to a reasonable size
                 ModelMatrix = glm::scale(ModelMatrix, glm::vec3(STATUE_OBJ_SCALE));
 
                 MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
@@ -653,7 +785,6 @@ int main()
         // ===================== DRAW CAVE 2 =====================
         if (currentZone == 2)
         {
-            // ---- cave floor ----
             ModelMatrix = glm::mat4(1.0f);
             ModelMatrix = glm::translate(ModelMatrix, cave2Origin + glm::vec3(0.0f, caveFloorY, 0.0f));
             ModelMatrix = glm::scale(ModelMatrix, glm::vec3(caveFloorSize, 1.0f, caveFloorSize));
@@ -662,7 +793,7 @@ int main()
             glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
             plane.draw(shader);
 
-            // ---- Cave 2 enemy A (Shark) ----
+            // shark A
             ModelMatrix = glm::translate(glm::mat4(1.0f), cave2EnemyA_Pos + glm::vec3(0.0f, SHARK_Y_LIFT, 0.0f));
             ModelMatrix = glm::rotate(ModelMatrix, glm::radians(90.0f), glm::vec3(0, 1, 0));
             ModelMatrix = glm::scale(ModelMatrix, glm::vec3(SHARK_OBJ_SCALE));
@@ -671,7 +802,7 @@ int main()
             glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
             sharkMesh.draw(shader);
 
-            // ---- Cave 2 enemy B (Shark) ----
+            // shark B
             ModelMatrix = glm::translate(glm::mat4(1.0f), cave2EnemyB_Pos + glm::vec3(0.0f, SHARK_Y_LIFT, 0.0f));
             ModelMatrix = glm::rotate(ModelMatrix, glm::radians(-90.0f), glm::vec3(0, 1, 0));
             ModelMatrix = glm::scale(ModelMatrix, glm::vec3(SHARK_OBJ_SCALE));
@@ -680,7 +811,7 @@ int main()
             glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
             sharkMesh.draw(shader);
 
-            // ---- Cave 2 coin (Statue) ----
+            // statue coin
             if (cave2CoinVisible)
             {
                 float t2 = glfwGetTime();
@@ -688,7 +819,6 @@ int main()
 
                 ModelMatrix = glm::translate(glm::mat4(1.0f),
                     cave2CoinBase + glm::vec3(0.0f, floatY + STATUE_Y_LIFT, 0.0f));
-
                 ModelMatrix = glm::rotate(ModelMatrix, t2 * 1.6f, glm::vec3(0, 1, 0));
                 ModelMatrix = glm::scale(ModelMatrix, glm::vec3(STATUE_OBJ_SCALE));
 
@@ -699,23 +829,16 @@ int main()
             }
         }
 
-        // Swap buffers, poll events
         window.update();
     }
 
     return 0;
 }
 
-
-// ==========================================================
-// Reads keyboard input each frame and moves/rotates the camera.
-// Uses deltaTime so movement speed is stable across FPS.
-// ==========================================================
 void processKeyboardInput()
 {
     float cameraSpeed = 30.0f * deltaTime;
 
-    // Movement
     if (window.isPressed(GLFW_KEY_W)) camera.keyboardMoveFront(cameraSpeed);
     if (window.isPressed(GLFW_KEY_S)) camera.keyboardMoveBack(cameraSpeed);
     if (window.isPressed(GLFW_KEY_A)) camera.keyboardMoveLeft(cameraSpeed);
@@ -723,7 +846,6 @@ void processKeyboardInput()
     if (window.isPressed(GLFW_KEY_R)) camera.keyboardMoveUp(cameraSpeed);
     if (window.isPressed(GLFW_KEY_F)) camera.keyboardMoveDown(cameraSpeed);
 
-    // Rotation (arrows)
     if (window.isPressed(GLFW_KEY_LEFT))  camera.rotateOy(cameraSpeed);
     if (window.isPressed(GLFW_KEY_RIGHT)) camera.rotateOy(-cameraSpeed);
     if (window.isPressed(GLFW_KEY_UP))    camera.rotateOx(cameraSpeed);

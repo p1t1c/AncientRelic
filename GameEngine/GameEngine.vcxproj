@@ -130,6 +130,7 @@
     <ClInclude Include="Graphics\window.h" />
     <ClInclude Include="Model Loading\meshLoaderObj.h" />
     <ClInclude Include="Model Loading\mesh.h" />
+    <ClInclude Include="Model Loading\SharkCollisionOctree.h" />
     <ClInclude Include="Model Loading\stringTokenizer.h" />
     <ClInclude Include="Shaders\shader.h" />
     <ClInclude Include="Model Loading\texture.h" />
