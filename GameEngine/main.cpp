@@ -68,6 +68,15 @@ void processKeyboardInput();
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
+// ===================== STAMINA (Sprint) =====================
+static float stamina = 1.0f;                 // 0..1
+static const float STAMINA_DRAIN = 0.35f;    // /sec when sprinting
+static const float STAMINA_REGEN = 0.25f;    // /sec when not sprinting
+static const float SPRINT_MULT = 2.0f;       // speed multiplier
+static const float MIN_STAMINA_TO_SPRINT = 0.05f;
+static bool isSprinting = false;
+
+
 Window window("Game Engine", 800, 800);
 Camera camera;
 
@@ -530,6 +539,61 @@ static void drawQuestUI(Shader& uiShader, int screenW, int screenH)
     glDisable(GL_BLEND);
     glEnable(GL_DEPTH_TEST);
 }
+static void drawStaminaUI(Shader& uiShader, int screenW, int screenH)
+{
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    // Top-right stamina bar
+    float w = 220.0f;
+    float h = 16.0f;                     // puțin mai mică
+    float x = (float)screenW - w - 20.0f;
+    float y = 20.0f;
+
+    // Panel behind (optional) - ajută contrastul
+    uiDrawRectFilled(uiShader, x - 10.0f, y - 10.0f, w + 20.0f, h + 34.0f,
+        screenW, screenH, 0, 0, 0, 0.25f);
+    uiDrawRectOutline(uiShader, x - 10.0f, y - 10.0f, w + 20.0f, h + 34.0f,
+        screenW, screenH, 1, 1, 1, 0.25f);
+
+    // Bar background (mai închis)
+    uiDrawRectFilled(uiShader, x, y, w, h, screenW, screenH, 0, 0, 0, 0.55f);
+
+    // Outline (mai vizibil)
+    uiDrawRectOutline(uiShader, x, y, w, h, screenW, screenH, 1, 1, 1, 0.80f);
+
+    // Inner fill area (cu padding)
+    float innerPad = 2.0f;
+    float innerW = w - innerPad * 2.0f;
+    float innerH = h - innerPad * 2.0f;
+
+    float fillW = innerW * stamina;
+    if (fillW < 0.0f) fillW = 0.0f;
+    if (fillW > innerW) fillW = innerW;
+
+    // Contrast: când e low devine roșiatic, altfel cyan-albăstrui (se vede mai bine pe fundal)
+    float rr, gg, bb;
+    if (stamina < 0.25f) { rr = 1.0f; gg = 0.25f; bb = 0.25f; }   // red-ish
+    else if (stamina < 0.5f) { rr = 1.0f; gg = 0.75f; bb = 0.20f; }   // yellow-ish
+    else { rr = 0.20f; gg = 0.95f; bb = 1.00f; }  // cyan
+
+    if (fillW > 0.0f)
+    {
+        uiDrawRectFilled(uiShader,
+            x + innerPad, y + innerPad,
+            fillW, innerH,
+            screenW, screenH, rr, gg, bb, 0.95f);
+    }
+
+    // Label BELOW the bar (nu mai intră peste)
+    uiDrawText(uiShader, x, y + h + 18.0f, "STAMINA",
+        screenW, screenH, 1, 1, 1, 0.90f);
+
+    glDisable(GL_BLEND);
+    glEnable(GL_DEPTH_TEST);
+}
+
 
 
 // ==========================================================
@@ -651,6 +715,18 @@ int main()
         lastFrame = currentFrame;
 
         processKeyboardInput();
+        // --- Update stamina ---
+        if (isSprinting)
+        {
+            stamina -= STAMINA_DRAIN * deltaTime;
+            if (stamina < 0.0f) stamina = 0.0f;
+        }
+        else
+        {
+            stamina += STAMINA_REGEN * deltaTime;
+            if (stamina > 1.0f) stamina = 1.0f;
+        }
+
 
         bool eDown = window.isPressed(GLFW_KEY_E);
         bool eJustPressed = (eDown && !ePrevDown);
@@ -1175,6 +1251,8 @@ int main()
 
         // ===================== GUI Overlay =====================
         drawQuestUI(uiShader, window.getWidth(), window.getHeight());
+        drawStaminaUI(uiShader, window.getWidth(), window.getHeight());
+
 
         window.update();
     }
@@ -1187,17 +1265,25 @@ int main()
 // ==========================================================
 void processKeyboardInput()
 {
-    float cameraSpeed = 30.0f * deltaTime;
+    // Sprint when SHIFT is held and stamina is available
+    bool shiftDown = window.isPressed(GLFW_KEY_LEFT_SHIFT) || window.isPressed(GLFW_KEY_RIGHT_SHIFT);
+    isSprinting = (shiftDown && stamina > MIN_STAMINA_TO_SPRINT);
 
-    if (window.isPressed(GLFW_KEY_W)) camera.keyboardMoveFront(cameraSpeed);
-    if (window.isPressed(GLFW_KEY_S)) camera.keyboardMoveBack(cameraSpeed);
-    if (window.isPressed(GLFW_KEY_A)) camera.keyboardMoveLeft(cameraSpeed);
-    if (window.isPressed(GLFW_KEY_D)) camera.keyboardMoveRight(cameraSpeed);
-    if (window.isPressed(GLFW_KEY_R)) camera.keyboardMoveUp(cameraSpeed);
-    if (window.isPressed(GLFW_KEY_F)) camera.keyboardMoveDown(cameraSpeed);
+    float baseMove = 30.0f;
+    float moveSpeed = baseMove * (isSprinting ? SPRINT_MULT : 1.0f) * deltaTime;
 
-    if (window.isPressed(GLFW_KEY_LEFT))  camera.rotateOy(cameraSpeed);
-    if (window.isPressed(GLFW_KEY_RIGHT)) camera.rotateOy(-cameraSpeed);
-    if (window.isPressed(GLFW_KEY_UP))    camera.rotateOx(cameraSpeed);
-    if (window.isPressed(GLFW_KEY_DOWN))  camera.rotateOx(-cameraSpeed);
+    if (window.isPressed(GLFW_KEY_W)) camera.keyboardMoveFront(moveSpeed);
+    if (window.isPressed(GLFW_KEY_S)) camera.keyboardMoveBack(moveSpeed);
+    if (window.isPressed(GLFW_KEY_A)) camera.keyboardMoveLeft(moveSpeed);
+    if (window.isPressed(GLFW_KEY_D)) camera.keyboardMoveRight(moveSpeed);
+    if (window.isPressed(GLFW_KEY_R)) camera.keyboardMoveUp(moveSpeed);
+    if (window.isPressed(GLFW_KEY_F)) camera.keyboardMoveDown(moveSpeed);
+
+    // Keep rotation speed consistent (not affected by sprint)
+    float rotSpeed = 30.0f * deltaTime;
+
+    if (window.isPressed(GLFW_KEY_LEFT))  camera.rotateOy(rotSpeed);
+    if (window.isPressed(GLFW_KEY_RIGHT)) camera.rotateOy(-rotSpeed);
+    if (window.isPressed(GLFW_KEY_UP))    camera.rotateOx(rotSpeed);
+    if (window.isPressed(GLFW_KEY_DOWN))  camera.rotateOx(-rotSpeed);
 }
