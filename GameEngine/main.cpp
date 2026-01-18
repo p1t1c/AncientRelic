@@ -1,11 +1,9 @@
 ﻿// main.cpp (FULL FILE - main room + portals + columns + rocks + chest + caves + underwater fog)
 //
 // ✅ AABB portals + ✅ Octree shark collision
-// ✅ NEW: Complex lighting (DirLight + PointLights + SpotLight) for the NEW fragment shader
-//
-// IMPORTANT: VARIANTA 1
-// - NU modific header-ele tale de include (le las exact cum sunt)
-// - Repar eroarea C2662 schimband helper-ele sa primeasca Shader& (NON-CONST)
+// ✅ Complex lighting (DirLight + PointLights + SpotLight) for the NEW fragment shader
+// ✅ NEW: Quest GUI overlay (checkbox tasks + hidden part)
+// ✅ FIX: Text works in CORE profile + NORMAL readable font via stb_truetype atlas (aPos+aUV + uFont)
 
 #include "Graphics\\window.h"
 #include "Camera\\camera.h"
@@ -14,17 +12,23 @@
 #include "Model Loading\\texture.h"
 #include "Model Loading\\meshLoaderObj.h"
 
-// ✅ NEW complex collision (Octree)
+// ✅ complex collision (Octree)
 #include "Model Loading\\SharkCollisionOctree.h"
 
 #include <glm.hpp>
-#include <glm.hpp>
-#include <glm.hpp>
+
 
 #include <cmath>
 #include <cstdlib>
 #include <vector>
-#include <string>   // ✅ necesar pentru std::string / std::to_string
+#include <string>
+#include <fstream>
+#include <cstdint>
+
+// ===================== GUI font (TTF) =====================
+// stb_truetype: bake TTF -> bitmap -> OpenGL texture atlas
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "stb_truetype.h"
 
 // ===================== Helpers =====================
 
@@ -124,8 +128,17 @@ static float lastSharkHitTime = -1000.0f;
 static const float SHARK_HIT_COOLDOWN = 0.8f;
 
 // ==========================================================
+// ✅ QUEST STATE (GUI tasks)
+// ==========================================================
+
+static bool qEnteredCave1 = false;
+static bool qGotRelic1 = false;
+static bool qEnteredCave2 = false;
+static bool qGotRelic2 = false;
+static bool qFoundHidden = false;
+
+// ==========================================================
 // ✅ Lighting helper setters for NEW fragment shader
-//    VARIANTA 1: Shader& (NON-CONST) ca sa nu mai crape la getId()
 // ==========================================================
 
 static void setMaterialUniforms(Shader& shader, float ambient, float spec, float shininess)
@@ -182,12 +195,326 @@ static void setSpotLight(Shader& shader, bool enabled,
     glUniform1f(glGetUniformLocation(shader.getId(), "uSpotLight.quadratic"), quadratic);
 }
 
+// ==========================================================
+// ✅ GUI (CORE profile safe): ui shader + vbo/vao + stb_truetype
+//    Shader expects: layout(0)=aPos vec2, layout(1)=aUV vec2, sampler2D uFont
+// ==========================================================
+
+static GLuint uiVAO = 0, uiVBO = 0;
+static GLuint textVAO = 0, textVBO = 0;
+
+static GLuint uiWhiteTex = 0;  // 1x1 white -> alpha=1 for shapes
+static GLuint fontTex = 0;     // baked atlas
+static stbtt_bakedchar fontCData[96]; // ASCII 32..126
+
+static const int FONT_TEX_W = 512;
+static const int FONT_TEX_H = 512;
+static const float FONT_PX_SIZE = 28.0f;
+static const char* FONT_TTF_PATH = "Resources/Fonts/Roboto-Regular.ttf";
+
+// read whole file
+static bool readFileBytes(const char* path, std::vector<unsigned char>& out)
+{
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return false;
+    f.seekg(0, std::ios::end);
+    size_t sz = (size_t)f.tellg();
+    f.seekg(0, std::ios::beg);
+    out.resize(sz);
+    f.read((char*)out.data(), (std::streamsize)sz);
+    return true;
+}
+
+static GLuint makeTextureR8(int w, int h, const unsigned char* pixels)
+{
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, pixels);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+    return tex;
+}
+
+static void uiInit()
+{
+    // Interleaved buffer per vertex: pos.xy + uv.xy (4 floats)
+    glGenVertexArrays(1, &uiVAO);
+    glGenBuffers(1, &uiVBO);
+    glBindVertexArray(uiVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, uiVBO);
+    glBufferData(GL_ARRAY_BUFFER, 1024 * 1024, nullptr, GL_DYNAMIC_DRAW);
+
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 4, (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 4, (void*)(sizeof(float) * 2));
+    glEnableVertexAttribArray(1);
+    glBindVertexArray(0);
+
+    glGenVertexArrays(1, &textVAO);
+    glGenBuffers(1, &textVBO);
+    glBindVertexArray(textVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, textVBO);
+    glBufferData(GL_ARRAY_BUFFER, 1024 * 1024, nullptr, GL_DYNAMIC_DRAW);
+
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 4, (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 4, (void*)(sizeof(float) * 2));
+    glEnableVertexAttribArray(1);
+    glBindVertexArray(0);
+
+    // 1x1 white texture (R=255 => alpha=1 in your fragment shader)
+    {
+        unsigned char white = 255;
+        uiWhiteTex = makeTextureR8(1, 1, &white);
+    }
+
+    // Build font atlas from TTF
+    {
+        std::vector<unsigned char> ttf;
+        if (!readFileBytes(FONT_TTF_PATH, ttf))
+        {
+            // If missing, keep fontTex = white (so at least UI shapes render).
+            // But text will not be readable without a TTF file.
+            fontTex = uiWhiteTex;
+        }
+        else
+        {
+            std::vector<unsigned char> bitmap(FONT_TEX_W * FONT_TEX_H);
+            int res = stbtt_BakeFontBitmap(
+                ttf.data(), 0,
+                FONT_PX_SIZE,
+                bitmap.data(), FONT_TEX_W, FONT_TEX_H,
+                32, 96,
+                fontCData
+            );
+
+            if (res <= 0)
+            {
+                fontTex = uiWhiteTex;
+            }
+            else
+            {
+                fontTex = makeTextureR8(FONT_TEX_W, FONT_TEX_H, bitmap.data());
+            }
+        }
+    }
+}
+
+static void uiBindTexture(Shader& uiShader, GLuint tex)
+{
+    uiShader.use();
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glUniform1i(glGetUniformLocation(uiShader.getId(), "uFont"), 0);
+}
+
+static void uiDrawVerts(Shader& uiShader, GLuint vao, GLuint vbo,
+    const float* vertsInterleavedPosUv, int vertCount,
+    int screenW, int screenH,
+    float r, float g, float b, float a,
+    GLenum mode,
+    GLuint textureToUse)
+{
+    uiShader.use();
+
+    glUniform2f(glGetUniformLocation(uiShader.getId(), "uScreen"), (float)screenW, (float)screenH);
+    glUniform4f(glGetUniformLocation(uiShader.getId(), "uColor"), r, g, b, a);
+
+    uiBindTexture(uiShader, textureToUse);
+
+    glBindVertexArray(vao);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, vertCount * sizeof(float) * 4, vertsInterleavedPosUv);
+    glDrawArrays(mode, 0, vertCount);
+    glBindVertexArray(0);
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+static void uiDrawRectFilled(Shader& uiShader, float x, float y, float w, float h,
+    int screenW, int screenH, float r, float g, float b, float a)
+{
+    // pos.xy uv.xy ; use white texture so alpha=1
+    float v[] = {
+        x,     y,     0,0,
+        x + w, y,     0,0,
+        x + w, y + h, 0,0,
+
+        x,     y,     0,0,
+        x + w, y + h, 0,0,
+        x,     y + h, 0,0
+    };
+
+    uiDrawVerts(uiShader, uiVAO, uiVBO, v, 6, screenW, screenH, r, g, b, a, GL_TRIANGLES, uiWhiteTex);
+}
+
+static void uiDrawRectOutline(Shader& uiShader, float x, float y, float w, float h,
+    int screenW, int screenH, float r, float g, float b, float a)
+{
+    float v[] = {
+        x,     y,     0,0,
+        x + w, y,     0,0,
+        x + w, y + h, 0,0,
+        x,     y + h, 0,0,
+        x,     y,     0,0
+    };
+
+    uiDrawVerts(uiShader, uiVAO, uiVBO, v, 5, screenW, screenH, r, g, b, a, GL_LINE_STRIP, uiWhiteTex);
+}
+
+static void uiDrawCheck(Shader& uiShader, float x, float y, float s, int screenW, int screenH)
+{
+    float v[] = {
+        x + s * 0.20f, y + s * 0.55f, 0,0,
+        x + s * 0.42f, y + s * 0.30f, 0,0,
+
+        x + s * 0.42f, y + s * 0.30f, 0,0,
+        x + s * 0.82f, y + s * 0.80f, 0,0
+    };
+
+    uiDrawVerts(uiShader, uiVAO, uiVBO, v, 4, screenW, screenH, 0.2f, 1.0f, 0.4f, 0.95f, GL_LINES, uiWhiteTex);
+}
+
+static void uiDrawText(Shader& uiShader, float x, float y, const char* txt,
+    int screenW, int screenH, float r, float g, float b, float a)
+{
+    if (!txt || !txt[0]) return;
+
+    // If fontTex fallback is white texture, it means no font loaded.
+    // Text will not look like letters; so user must provide a TTF.
+    if (fontTex == uiWhiteTex)
+    {
+        // draw a small warning line instead of invisible text (optional):
+        // return;  // uncomment if you prefer nothing
+    }
+
+    // Build triangles: each glyph is 2 triangles => 6 vertices => 24 floats (pos+uv)
+    static std::vector<float> tri;
+    tri.clear();
+    tri.reserve(strlen(txt) * 6 * 4);
+
+    float xpos = x;
+    float ypos = y;
+
+    // stbtt_GetBakedQuad wants "y" as baseline-ish; but works fine with top-left style too.
+    for (const char* p = txt; *p; ++p)
+    {
+        unsigned char c = (unsigned char)*p;
+        if (c == '\n')
+        {
+            xpos = x;
+            ypos += FONT_PX_SIZE + 8.0f;
+            continue;
+        }
+        if (c < 32 || c > 126) continue;
+
+        stbtt_aligned_quad q;
+        stbtt_GetBakedQuad(fontCData, FONT_TEX_W, FONT_TEX_H, c - 32, &xpos, &ypos, &q, 1);
+
+        // 2 triangles, each vertex: pos.xy uv.xy
+        // tri1: (x0,y0)-(x1,y0)-(x1,y1)
+        tri.push_back(q.x0); tri.push_back(q.y0); tri.push_back(q.s0); tri.push_back(q.t0);
+        tri.push_back(q.x1); tri.push_back(q.y0); tri.push_back(q.s1); tri.push_back(q.t0);
+        tri.push_back(q.x1); tri.push_back(q.y1); tri.push_back(q.s1); tri.push_back(q.t1);
+
+        // tri2: (x0,y0)-(x1,y1)-(x0,y1)
+        tri.push_back(q.x0); tri.push_back(q.y0); tri.push_back(q.s0); tri.push_back(q.t0);
+        tri.push_back(q.x1); tri.push_back(q.y1); tri.push_back(q.s1); tri.push_back(q.t1);
+        tri.push_back(q.x0); tri.push_back(q.y1); tri.push_back(q.s0); tri.push_back(q.t1);
+    }
+
+    if (tri.empty()) return;
+
+    uiDrawVerts(uiShader, textVAO, textVBO,
+        tri.data(), (int)(tri.size() / 4),
+        screenW, screenH, r, g, b, a,
+        GL_TRIANGLES, fontTex);
+}
+
+static void drawQuestUI(Shader& uiShader, int screenW, int screenH)
+{
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    // Find current task index (first NOT done)
+    int cur = -1;
+    if (!qEnteredCave1) cur = 0;
+    else if (!qGotRelic1) cur = 1;
+    else if (!qEnteredCave2) cur = 2;
+    else if (!qGotRelic2) cur = 3;
+    else if (!qFoundHidden) cur = 4;
+
+    // Panel
+    float px = 20.0f;
+    float py = screenH - 170.0f;
+    float pw = 780.0f;
+    float ph = 140.0f;
+
+    uiDrawRectFilled(uiShader, px, py, pw, ph, screenW, screenH, 0, 0, 0, 0.35f);
+    uiDrawRectOutline(uiShader, px, py, pw, ph, screenW, screenH, 1, 1, 1, 0.60f);
+
+    uiDrawText(uiShader, px + 12, py + ph - 30,
+        "On your way to get all the missing parts of the relic you need to:",
+        screenW, screenH, 1, 1, 1, 0.95f);
+
+    // All done?
+    if (cur == -1)
+    {
+        uiDrawText(uiShader, px + 12, py + 25,
+            "All parts collected! Return to the chest!",
+            screenW, screenH, 0.3f, 1.0f, 0.6f, 0.95f);
+
+        glDisable(GL_BLEND);
+        glEnable(GL_DEPTH_TEST);
+        return;
+    }
+
+    const char* taskLabel[5] =
+    {
+        "Enter cave 1",
+        "Collect relic part 1",
+        "Enter cave 2",
+        "Collect relic part 2",
+        "Find the hidden part (press E near the chest)"
+    };
+
+    // Single checkbox row (ONE task)
+    float box = 20.0f;
+    float bx = px + 14.0f;
+    float by = py + 55.0f;
+
+    uiDrawRectOutline(uiShader, bx, by, box, box, screenW, screenH, 1, 1, 1, 0.90f);
+    uiDrawText(uiShader, bx + 32.0f, by + 18.0f, taskLabel[cur],
+        screenW, screenH, 1, 1, 1, 1.0f);
+
+    glDisable(GL_BLEND);
+    glEnable(GL_DEPTH_TEST);
+}
+
+// ==========================================================
+// MAIN
+// ==========================================================
+
 int main()
 {
     glClearColor(0.2f, 0.8f, 1.0f, 1.0f);
 
     Shader shader("Shaders/vertex_shader.glsl", "Shaders/fragment_shader.glsl");
     Shader sunShader("Shaders/sun_vertex_shader.glsl", "Shaders/sun_fragment_shader.glsl");
+
+    // ✅ UI shader (the one you posted)
+    Shader uiShader("Shaders/ui_vertex_shader.glsl", "Shaders/ui_fragment_shader.glsl");
+    uiInit();
 
     // ===================== Textures =====================
 
@@ -204,28 +531,27 @@ int main()
 
     MeshLoaderObj loader;
 
-    // Light sphere model
     Mesh sun = loader.loadObj("Resources/Models/sphere.obj");
 
-    // Wood cube (portals)
+    // Portals
     std::vector<Texture> woodTex(1);
     woodTex[0].id = texWood;
     woodTex[0].type = "texture_diffuse";
     Mesh box = loader.loadObj("Resources/Models/cube.obj", woodTex);
 
-    // Floor plane
+    // Floor
     std::vector<Texture> planeTex(1);
     planeTex[0].id = texUnderSand;
     planeTex[0].type = "texture_diffuse";
     Mesh plane = loader.loadObj("Resources/Models/plane.obj", planeTex);
 
-    // Rock cube
+    // Rocks
     std::vector<Texture> rockTex(1);
     rockTex[0].id = texRock;
     rockTex[0].type = "texture_diffuse";
     Mesh rockBox = loader.loadObj("Resources/Models/cube.obj", rockTex);
 
-    // Coin (unused visually)
+    // Coin unused visual
     std::vector<Texture> coinTex(1);
     coinTex[0].id = texOrange;
     coinTex[0].type = "texture_diffuse";
@@ -249,13 +575,13 @@ int main()
     const float SHARK_OBJ_SCALE = 8.0f;
     const float SHARK_Y_LIFT = 0.0f;
 
-    // Statue
+    // Statue (relic part)
     Mesh statueMesh = loader.loadObj("Resources/Models/statue.obj");
     const float STATUE_OBJ_SCALE = 0.5f;
     const float STATUE_Y_LIFT = 0.0f;
 
     // ==========================================================
-    // ✅ BUILD OCTREE (ONE TIME) FROM SHARK TRIANGLES
+    // BUILD OCTREE
     // ==========================================================
     std::vector<Triangle> sharkTris;
     Octree sharkOctree;
@@ -289,7 +615,6 @@ int main()
     {
         window.clear();
 
-        // ----- Time -----
         float currentFrame = glfwGetTime();
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
@@ -312,6 +637,7 @@ int main()
             if (pointInAABB(camPos, portalLeftPos, portalHalfSize))
             {
                 currentZone = 1;
+                qEnteredCave1 = true;
                 lastTeleportTime = now;
 
                 cave1Origin = caveSpawnLeft;
@@ -327,6 +653,7 @@ int main()
             else if (pointInAABB(camPos, portalRightPos, portalHalfSize))
             {
                 currentZone = 2;
+                qEnteredCave2 = true;
                 lastTeleportTime = now;
 
                 cave2Origin = caveSpawnRight;
@@ -344,13 +671,16 @@ int main()
         }
 
         // ==========================================================
-        // MAIN ROOM: stop chest shaking
+        // MAIN ROOM: stop chest shaking + hidden part
         // ==========================================================
         if (currentZone == 0 && eJustPressed)
         {
             float distToChest = glm::length(camera.getCameraPosition() - chestBasePos);
             if (distToChest < 200.0f)
+            {
                 chestShaking = false;
+                qFoundHidden = true;
+            }
         }
 
         // ==========================================================
@@ -385,7 +715,7 @@ int main()
                 cave1ObstaclePos += dir * speed * deltaTime;
             }
 
-            // ✅ Octree collision
+            // Octree collision
             {
                 glm::vec3 camPosW = camera.getCameraPosition();
 
@@ -410,6 +740,7 @@ int main()
                 }
             }
 
+            // relic part 1 pickup
             if (cave1CoinVisible && eJustPressed)
             {
                 float tCoin = glfwGetTime();
@@ -420,6 +751,7 @@ int main()
                 if (distToCoin < 35.0f)
                 {
                     cave1CoinVisible = false;
+                    qGotRelic1 = true;
                     currentZone = 0;
                     camera.setCameraPosition(mainSpawnPos);
                     lastTeleportTime = glfwGetTime();
@@ -461,7 +793,7 @@ int main()
 
             cave2EnemyB_Pos = mirrorXAroundOrigin(cave2EnemyA_Pos, cave2Origin);
 
-            // ✅ Octree collision for both sharks
+            // Octree collision for both sharks
             {
                 glm::vec3 camPosW = camera.getCameraPosition();
                 float rLocal = PLAYER_RADIUS_WORLD / SHARK_OBJ_SCALE;
@@ -493,6 +825,7 @@ int main()
                 }
             }
 
+            // relic part 2 pickup
             if (cave2CoinVisible && eJustPressed)
             {
                 float tCoin = glfwGetTime();
@@ -503,6 +836,7 @@ int main()
                 if (distToCoin < 35.0f)
                 {
                     cave2CoinVisible = false;
+                    qGotRelic2 = true;
                     currentZone = 0;
                     camera.setCameraPosition(mainSpawnPos);
                     lastTeleportTime = glfwGetTime();
@@ -512,7 +846,7 @@ int main()
 
         // ===================== Render setup =====================
 
-        // ---- Sun pass (kept simple) ----
+        // ---- Sun pass ----
         sunShader.use();
 
         glm::mat4 ProjectionMatrix =
@@ -530,7 +864,6 @@ int main()
         glm::mat4 ModelMatrix = glm::mat4(1.0f);
         glm::mat4 MVP = glm::mat4(1.0f);
 
-        // draw the "sun" sphere near the player as a marker
         glm::vec3 sunPos = camera.getCameraPosition() + glm::vec3(0.0f, 350.0f, 0.0f);
 
         ModelMatrix = glm::mat4(1.0f);
@@ -545,13 +878,12 @@ int main()
         GLuint MatrixID2 = glGetUniformLocation(shader.getId(), "MVP");
         GLuint ModelMatrixID = glGetUniformLocation(shader.getId(), "model");
 
-        // viewPos (needed by new shader)
         glUniform3f(glGetUniformLocation(shader.getId(), "viewPos"),
             camera.getCameraPosition().x,
             camera.getCameraPosition().y,
             camera.getCameraPosition().z);
 
-        // Underwater fog (same as before)
+        // Fog
         glUniform1i(glGetUniformLocation(shader.getId(), "uUseFog"), 1);
         glUniform3f(glGetUniformLocation(shader.getId(), "uFogColor"), 0.05f, 0.35f, 0.55f);
         glUniform1f(glGetUniformLocation(shader.getId(), "uFogNear"), 40.0f);
@@ -559,37 +891,28 @@ int main()
         glUniform1f(glGetUniformLocation(shader.getId(), "uNear"), 0.1f);
         glUniform1f(glGetUniformLocation(shader.getId(), "uFar"), 10000.0f);
 
-        // Portal defaults
         glUniform1i(glGetUniformLocation(shader.getId(), "uIsPortal"), 0);
         glUniform1f(glGetUniformLocation(shader.getId(), "uPortalAlpha"), 1.0f);
 
-        // ===== MATERIAL defaults =====
+        // Material
         setMaterialUniforms(shader, 0.20f, 0.35f, 64.0f);
 
-        // ===== LIGHTS =====
-
-        // 1) Directional light = soft "ocean" fill
+        // Dir light
         setDirLight(shader, true,
             glm::vec3(-0.2f, -1.0f, -0.3f),
             glm::vec3(0.25f, 0.40f, 0.55f),
             0.60f);
 
-        // 2) Point lights (max 8)
+        // Point lights
         int pointCount = 0;
-
         auto setNicePoint = [&](int idx, const glm::vec3& pos, const glm::vec3& col, float intensity)
             {
-                setPointLight(shader, idx, pos, col, intensity,
-                    1.0f,     // constant
-                    0.014f,   // linear
-                    0.0007f); // quadratic
+                setPointLight(shader, idx, pos, col, intensity, 1.0f, 0.014f, 0.0007f);
             };
 
-        // portal left + right
         setNicePoint(pointCount++, portalLeftPos, glm::vec3(0.2f, 0.7f, 1.0f), 3.0f);
         setNicePoint(pointCount++, portalRightPos, glm::vec3(0.2f, 0.7f, 1.0f), 3.0f);
 
-        // chest glow (doar in main room)
         float tChest = glfwGetTime();
         glm::vec3 shakeOffset(0.0f);
         if (currentZone == 0 && chestShaking)
@@ -606,31 +929,21 @@ int main()
         chestPos.y = mainFloorTopY();
         chestPos += shakeOffset;
 
-        if (currentZone == 0)
-        {
-            setNicePoint(pointCount++, chestPos + glm::vec3(0.0f, 60.0f, 0.0f),
-                glm::vec3(1.0f, 0.8f, 0.4f), 2.0f);
-        }
+        if (currentZone == 0 && pointCount < 8)
+            setNicePoint(pointCount++, chestPos + glm::vec3(0.0f, 60.0f, 0.0f), glm::vec3(1.0f, 0.8f, 0.4f), 2.0f);
 
-        // statue glow in caves (optional)
-        if (currentZone == 1 && cave1CoinVisible)
-        {
-            setNicePoint(pointCount++, cave1CoinBase + glm::vec3(0.0f, 30.0f, 0.0f),
-                glm::vec3(0.8f, 0.9f, 1.0f), 1.2f);
-        }
-        if (currentZone == 2 && cave2CoinVisible)
-        {
-            setNicePoint(pointCount++, cave2CoinBase + glm::vec3(0.0f, 30.0f, 0.0f),
-                glm::vec3(0.8f, 0.9f, 1.0f), 1.2f);
-        }
+        if (currentZone == 1 && cave1CoinVisible && pointCount < 8)
+            setNicePoint(pointCount++, cave1CoinBase + glm::vec3(0.0f, 30.0f, 0.0f), glm::vec3(0.8f, 0.9f, 1.0f), 1.2f);
+
+        if (currentZone == 2 && cave2CoinVisible && pointCount < 8)
+            setNicePoint(pointCount++, cave2CoinBase + glm::vec3(0.0f, 30.0f, 0.0f), glm::vec3(0.8f, 0.9f, 1.0f), 1.2f);
 
         if (pointCount > 8) pointCount = 8;
         glUniform1i(glGetUniformLocation(shader.getId(), "uNumPointLights"), pointCount);
 
-        // 3) SpotLight = flashlight from camera
+        // Spot light
         glm::vec3 cp = camera.getCameraPosition();
         glm::vec3 cd = camera.getCameraViewDirection();
-
         setSpotLight(shader, true,
             cp, cd,
             glm::vec3(0.8f, 0.9f, 1.0f),
@@ -651,14 +964,14 @@ int main()
             glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
             plane.draw(shader);
 
-            // portals (transparent)
+            // portals transparent
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
             glUniform1i(glGetUniformLocation(shader.getId(), "uIsPortal"), 1);
             glUniform1f(glGetUniformLocation(shader.getId(), "uPortalAlpha"), 0.35f);
 
-            // left portal
+            // left
             ModelMatrix = glm::translate(glm::mat4(1.0f), portalLeftPos);
             ModelMatrix = glm::scale(ModelMatrix, glm::vec3(8.0f, 18.0f, 0.5f));
             MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
@@ -666,7 +979,7 @@ int main()
             glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
             box.draw(shader);
 
-            // right portal
+            // right
             ModelMatrix = glm::translate(glm::mat4(1.0f), portalRightPos);
             ModelMatrix = glm::scale(ModelMatrix, glm::vec3(8.0f, 18.0f, 0.5f));
             MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
@@ -764,7 +1077,7 @@ int main()
             glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
             sharkMesh.draw(shader);
 
-            // statue coin
+            // statue
             if (cave1CoinVisible)
             {
                 float t2 = glfwGetTime();
@@ -811,7 +1124,7 @@ int main()
             glUniformMatrix4fv(ModelMatrixID, 1, GL_FALSE, &ModelMatrix[0][0]);
             sharkMesh.draw(shader);
 
-            // statue coin
+            // statue
             if (cave2CoinVisible)
             {
                 float t2 = glfwGetTime();
@@ -829,12 +1142,18 @@ int main()
             }
         }
 
+        // ===================== GUI Overlay =====================
+        drawQuestUI(uiShader, window.getWidth(), window.getHeight());
+
         window.update();
     }
 
     return 0;
 }
 
+// ==========================================================
+// Keyboard input
+// ==========================================================
 void processKeyboardInput()
 {
     float cameraSpeed = 30.0f * deltaTime;

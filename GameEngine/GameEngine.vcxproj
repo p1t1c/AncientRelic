@@ -134,6 +134,7 @@
     <ClInclude Include="Model Loading\stringTokenizer.h" />
     <ClInclude Include="Shaders\shader.h" />
     <ClInclude Include="Model Loading\texture.h" />
+    <ClInclude Include="stb_truetype.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Shaders\fragment_shader.glsl" />
