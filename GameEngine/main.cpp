@@ -706,6 +706,7 @@ int main()
     return 0;
 }
 
+
 // ==========================================================
 // Reads keyboard input each frame and moves/rotates the camera.
 // Uses deltaTime so movement speed is stable across FPS.
