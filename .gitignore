@@ -12,12 +12,7 @@ out/
 *.db
 *.ipch
 
-# Compiled Binaries and Objects
-*.exe
-*.obj
-*.pdb
-*.ilk
-*.log
+
 
 # Dependency folders (usually you don't push these if they are large)
 # Keep them if your team needs the exact same .lib files
