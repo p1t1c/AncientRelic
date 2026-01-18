@@ -373,16 +373,21 @@ static void uiDrawRectOutline(Shader& uiShader, float x, float y, float w, float
 
 static void uiDrawCheck(Shader& uiShader, float x, float y, float s, int screenW, int screenH)
 {
-    float v[] = {
-        x + s * 0.20f, y + s * 0.55f, 0,0,
-        x + s * 0.42f, y + s * 0.30f, 0,0,
+    // In UI we use TOP-LEFT origin. Draw a check that looks correct in that space.
+    // Two segments: (left-mid -> mid-low) and (mid-low -> right-high)
 
-        x + s * 0.42f, y + s * 0.30f, 0,0,
-        x + s * 0.82f, y + s * 0.80f, 0,0
+    float v[] = {
+        x + s * 0.18f, y + s * 0.55f, 0,0,
+        x + s * 0.40f, y + s * 0.78f, 0,0,
+
+        x + s * 0.40f, y + s * 0.78f, 0,0,
+        x + s * 0.82f, y + s * 0.22f, 0,0
     };
 
-    uiDrawVerts(uiShader, uiVAO, uiVBO, v, 4, screenW, screenH, 0.2f, 1.0f, 0.4f, 0.95f, GL_LINES, uiWhiteTex);
+    uiDrawVerts(uiShader, uiVAO, uiVBO, v, 4, screenW, screenH,
+        0.2f, 1.0f, 0.4f, 0.95f, GL_LINES, uiWhiteTex);
 }
+
 
 static void uiDrawText(Shader& uiShader, float x, float y, const char* txt,
     int screenW, int screenH, float r, float g, float b, float a)
@@ -446,7 +451,6 @@ static void drawQuestUI(Shader& uiShader, int screenW, int screenH)
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    // Find current task index (first NOT done)
     int cur = -1;
     if (!qEnteredCave1) cur = 0;
     else if (!qGotRelic1) cur = 1;
@@ -454,30 +458,29 @@ static void drawQuestUI(Shader& uiShader, int screenW, int screenH)
     else if (!qGotRelic2) cur = 3;
     else if (!qFoundHidden) cur = 4;
 
-    // Panel
-    float px = 20.0f;
-    float py = screenH - 170.0f;
-    float pw = 780.0f;
-    float ph = 140.0f;
-
-    uiDrawRectFilled(uiShader, px, py, pw, ph, screenW, screenH, 0, 0, 0, 0.35f);
-    uiDrawRectOutline(uiShader, px, py, pw, ph, screenW, screenH, 1, 1, 1, 0.60f);
-
-    uiDrawText(uiShader, px + 12, py + ph - 30,
-        "On your way to get all the missing parts of the relic you need to:",
-        screenW, screenH, 1, 1, 1, 0.95f);
-
-    // All done?
+    // ✅ FINISHED: draw ONLY this and exit
     if (cur == -1)
     {
-        uiDrawText(uiShader, px + 12, py + 25,
-            "All parts collected! Return to the chest!",
-            screenW, screenH, 0.3f, 1.0f, 0.6f, 0.95f);
+        float pw = 520.0f;
+        float ph = 70.0f;
+        float px = (screenW - pw) * 0.5f;   // centered
+        float py = 20.0f;
+
+        uiDrawRectFilled(uiShader, px, py, pw, ph, screenW, screenH, 0, 0, 0, 0.40f);
+        uiDrawRectOutline(uiShader, px, py, pw, ph, screenW, screenH, 1, 1, 1, 0.70f);
+
+        uiDrawText(uiShader, px + 24, py + 44,
+            "GAME FINISHED",
+            screenW, screenH, 0.3f, 1.0f, 0.6f, 0.98f);
 
         glDisable(GL_BLEND);
         glEnable(GL_DEPTH_TEST);
         return;
     }
+
+    // ---------------------------
+    // de aici în jos: UI normal (title + stacked tasks)
+    // ---------------------------
 
     const char* taskLabel[5] =
     {
@@ -485,21 +488,49 @@ static void drawQuestUI(Shader& uiShader, int screenW, int screenH)
         "Collect relic part 1",
         "Enter cave 2",
         "Collect relic part 2",
-        "Find the hidden part (press E near the chest)"
+        "Find the hidden part"
     };
 
-    // Single checkbox row (ONE task)
-    float box = 20.0f;
-    float bx = px + 14.0f;
-    float by = py + 55.0f;
+    float px = 20.0f;
+    float py = 20.0f;
+    float pw = 780.0f;
 
-    uiDrawRectOutline(uiShader, bx, by, box, box, screenW, screenH, 1, 1, 1, 0.90f);
-    uiDrawText(uiShader, bx + 32.0f, by + 18.0f, taskLabel[cur],
-        screenW, screenH, 1, 1, 1, 1.0f);
+    float titleH = 34.0f;
+    float rowH = 28.0f;
+    float pad = 12.0f;
+
+    int rowsToShow = cur + 1;
+    float ph = pad + titleH + 8.0f + rowsToShow * rowH + pad;
+
+    uiDrawRectFilled(uiShader, px, py, pw, ph, screenW, screenH, 0, 0, 0, 0.35f);
+    uiDrawRectOutline(uiShader, px, py, pw, ph, screenW, screenH, 1, 1, 1, 0.60f);
+
+    uiDrawText(uiShader, px + pad, py + pad + 20.0f,
+        "On your way to get all the missing parts of the relic you need to:",
+        screenW, screenH, 1, 1, 1, 0.95f);
+
+    float startY = py + pad + titleH + 8.0f;
+
+    for (int i = 0; i <= cur; i++)
+    {
+        float y = startY + i * rowH;
+        float box = 18.0f;
+        float bx = px + pad;
+        float by = y;
+
+        uiDrawRectOutline(uiShader, bx, by, box, box, screenW, screenH, 1, 1, 1, 0.90f);
+
+        if (i < cur)
+            uiDrawCheck(uiShader, bx, by, box, screenW, screenH);
+
+        uiDrawText(uiShader, bx + box + 10.0f, by + 14.0f, taskLabel[i],
+            screenW, screenH, 1, 1, 1, 1.0f);
+    }
 
     glDisable(GL_BLEND);
     glEnable(GL_DEPTH_TEST);
 }
+
 
 // ==========================================================
 // MAIN
