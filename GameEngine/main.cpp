@@ -1,4 +1,5 @@
-﻿// Ideea jocului (pe scurt, pt prezentare):
+﻿
+// Ideea jocului (pe scurt, pt prezentare):
 //  - Avem 3 "zone": main room (0) + cave1 (1) + cave2 (2)
 //  - In main room sunt 2 portale (AABB). Cand intri in ele, te teleporteaza in cave-uri
 //  - In cave-uri sunt rechini care se misca random; coliziunea e facuta cu Octree (mesh vs sfera player)

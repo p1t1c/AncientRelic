@@ -33,6 +33,8 @@ void Window::init()
 	{
 		std::cout << "Successfully initializing glfw!" << std::endl;
 	}
+	glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE); 
+	glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);  //porneste in "fullscreen"
 
 	window = glfwCreateWindow(width, height, name, NULL, NULL);
 
