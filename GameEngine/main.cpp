@@ -1281,7 +1281,7 @@ int main()
             auto drawRock = [&](glm::vec3 pos, glm::vec3 scale)
                 {
                     // aliniere: mutam centrul cubului astfel incat baza sa ajunga la podea
-                    pos.y = mainFloorTopY() + scale.y * 0.5f - 5.0f;
+                    pos.y = mainFloorTopY();
 
                     glm::mat4 M = glm::translate(glm::mat4(1.0f), pos);
                     M = glm::scale(M, scale);
