@@ -1,5 +1,4 @@
-﻿
-// Ideea jocului (pe scurt, pt prezentare):
+﻿// Ideea jocului (pe scurt, pt prezentare):
 //  - Avem 3 "zone": main room (0) + cave1 (1) + cave2 (2)
 //  - In main room sunt 2 portale (AABB). Cand intri in ele, te teleporteaza in cave-uri
 //  - In cave-uri sunt rechini care se misca random; coliziunea e facuta cu Octree (mesh vs sfera player)
@@ -825,12 +824,13 @@ int main()
         // TELEPORT via portals (doar in main room)
         // ==========================================================
         // Portalul e un trigger AABB. Daca player intra, schimbam zona si setam spawn-ul din cave.
+        // MODIFICAT: nu mai poti intra in cave-ul deja completat (qGotRelic1 / qGotRelic2).
         if (currentZone == 0 && (now - lastTeleportTime > 0.8f))
         {
             glm::vec3 camPos = camera.getCameraPosition();
 
-            // portal stanga -> cave1
-            if (pointInAABB(camPos, portalLeftPos, portalHalfSize))
+            // portal stanga -> cave1 (doar daca NU e completat)
+            if (!qGotRelic1 && pointInAABB(camPos, portalLeftPos, portalHalfSize))
             {
                 currentZone = 1;
                 qEnteredCave1 = true;
@@ -849,8 +849,8 @@ int main()
                 cave1CoinBase = cave1Origin + glm::vec3(0.0f, 10.0f, -120.0f);
                 cave1CoinVisible = true;
             }
-            // portal dreapta -> cave2
-            else if (pointInAABB(camPos, portalRightPos, portalHalfSize))
+            // portal dreapta -> cave2 (doar daca NU e completat)
+            else if (!qGotRelic2 && pointInAABB(camPos, portalRightPos, portalHalfSize))
             {
                 currentZone = 2;
                 qEnteredCave2 = true;
@@ -1148,9 +1148,9 @@ int main()
                 setPointLight(shader, idx, pos, col, intensity, 1.0f, 0.014f, 0.0007f);
             };
 
-        // 2 lumini pt portale
-        setNicePoint(pointCount++, portalLeftPos, glm::vec3(0.2f, 0.7f, 1.0f), 3.0f);
-        setNicePoint(pointCount++, portalRightPos, glm::vec3(0.2f, 0.7f, 1.0f), 3.0f);
+        // MODIFICAT: lumini la portale doar daca portalul inca e disponibil (cave necompletat)
+        if (!qGotRelic1) setNicePoint(pointCount++, portalLeftPos, glm::vec3(0.2f, 0.7f, 1.0f), 3.0f);
+        if (!qGotRelic2) setNicePoint(pointCount++, portalRightPos, glm::vec3(0.2f, 0.7f, 1.0f), 3.0f);
 
         // Chest shake: offset mic sinusoidal, doar in main room si doar cat timp nu e "rezolvat"
         float tChest = glfwGetTime();
